@@ -2,6 +2,66 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [0.4.0] — CAdES-LT / -LTA + ASiC
+
+Uzun süreli doğrulama + arşivleme (CAdES) ve zip konteyner (ASiC).
+
+### Eklendi
+
+- **CAdES-LT** (`to:"LT"` in `cades-upgrade.ts`):
+  - `buildCertValuesAttr(certs)` — ETSI TS 101 733 §6.2.1
+    `id-aa-ets-certValues` (1.2.840.113549.1.9.16.2.23). CertificateValues
+    ::= SEQUENCE OF Certificate.
+  - `buildRevocationValuesAttr({crls, ocsps})` — §6.2.2
+    `id-aa-ets-revocationValues` (1.2.840.113549.1.9.16.2.24).
+    EXPLICIT [0] crlVals / [1] ocspVals. OCSPResponse DER'i otomatik
+    BasicOCSPResponse'a unwrap edilir (spec içi).
+  - Paylasılan `addUnsignedAttr()` helper.
+
+- **CAdES-LTA** (`to:"LTA"`):
+  - `archive-time-stamp-v2` (OID 1.2.840.113549.1.9.16.2.48),
+    ETSI TS 101 733 §6.4.1. Message imprint input: DER(eContent) ||
+    DER(certs)* || DER(crls)* || DER(signerInfo alanları, prior ATS hariç).
+  - `detachedContent` opt parametresi detached BES/T/LT üzerinde LTA için.
+  - ATSv3 (EN 319 122-1, ats-hash-index) bilinçli olarak atlandı — v2
+    ETSI-compliant ve karmaşıklığı düşük.
+
+- **ASiC container** — `src/asic.ts`:
+  - `createAsic(opts)` — discriminated union: `asic-s` (tek veri + tek sig)
+    veya `asic-e` (multi-dosya + multi-sig + ops. manifest).
+  - `readAsic(bytes)` — mimetype tespiti + dataFiles/signatures/manifests
+    sınıflandırması.
+  - EN 319 162-1 §A.1 uyumlu: mimetype FIRST entry + STORED, XAdES
+    `signatures.xml` / CAdES `signature.p7s` naming + E için `NNN` indeks.
+  - `fflate` (MIT, ~8kb, tree-shakable) tek dep.
+  - Subpath export: `tr-xades/asic`.
+
+- **Test altyapısı**:
+  - `reference/gen-test-ca.sh` — openssl ile 3-katmanlı test CA
+    (root → intermediate → leaf), leaf'ta KeyUsage digitalSignature +
+    nonRepudiation + AIA + CDP placeholder. PFX export `test-chain.p12`.
+  - `test-chain-*.pem` trust anchor + okunabilir chain.
+
+### Değişti
+
+- `cades-upgrade.ts` — `addArchiveTimeStamp()` SignerInfo alanıı `si.toSchema()`
+  inner node'larından iterate ederek alıyor (çoklu parse/re-serialize sonrası
+  `si.sid` tip kararlılığı için). [1] IMPLICIT unsignedAttrs skip.
+- `reference/driver/Ma3Ref.java` — chain PFX yükleme kodu halâ içeride,
+  CAdES fixture üretim denemesi meta.json'da loglanıyor.
+- `.gitignore` — `reference/fixtures/*.pem` eklendi.
+
+### Bilinen sınırlamalar
+
+- **MA3 CAdES cross-verify ertelendi (v0.5+)**: MA3 `addSigner()` CAdES-BES
+  için bile online revocation zorunluyor (NPE at `CertificateStatusInfo.
+  getCertificate()`). Test CA placeholder URL'lere ulaşamadığı için fixture
+  üretilemedi. `cades-cross-verify.test.ts` fixture varsa doğrular, yoksa
+  skip. Çözüm: yerel openssl ocsp responder veya gerçek TR mali mühür PFX.
+- CAdES-LTA'da ATSv3 (ats-hash-index) yok; v2 yeterli. ATSv3 v0.5+'a.
+- ASiC-E XAdES manifest üretimi otomatik değil — kullanıcı ayrı yazıp
+  opts.manifest ile verir (XAdES için genelde gereksiz, CAdES için zorunlu).
+
 ## [0.3.0] — CAdES (CMS/PKCS#7)
 
 XAdES'le paralel ikinci imza formatı: CMS SignedData üzerinde ASN.1 DER
