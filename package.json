@@ -13,7 +13,7 @@
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "example:bes": "node --import tsx examples/sign-bes.ts"
+    "example:efatura": "node --import tsx examples/sign-efatura.ts"
   },
   "keywords": ["xades", "esignature", "eimza", "tubitak", "kamusm", "etsi", "e-fatura", "ubl-tr"],
   "license": "MIT",
