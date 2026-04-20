@@ -275,6 +275,10 @@ function extractSigningTime(sig: any): Date | undefined {
 
 function extractSignerInfo(certDer: Uint8Array): SignerInfo {
 	const c = new Certificate({ schema: asn1js.fromBER(toAB(certDer)).result });
+	return certToSignerInfo(c);
+}
+
+export function certToSignerInfo(c: Certificate): SignerInfo {
 	return {
 		subject: dnToLdap(c.subject),
 		issuer: dnToLdap(c.issuer),
