@@ -14,3 +14,4 @@ reference/fixtures/*.pfx
 reference/fixtures/*.p12
 reference/fixtures/*.keystore
 reference/fixtures/lisans.xml
+docs/
