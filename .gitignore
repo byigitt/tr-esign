@@ -1,1 +1,16 @@
-node_modules\ndist\n.DS_Store\n*.log\ncoverage\n.env
+node_modules
+dist
+.DS_Store
+*.log
+coverage
+.env
+
+# reference/ = MA3 Java driver used to generate test fixtures.
+# Driver source code IS committed. MA3 jars are NOT redistributable — keep out.
+reference/lib/
+reference/out/
+reference/build/
+reference/fixtures/*.pfx
+reference/fixtures/*.p12
+reference/fixtures/*.keystore
+reference/fixtures/lisans.xml
