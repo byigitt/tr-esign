@@ -1,6 +1,6 @@
 {
   "name": "tr-xades",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Türkiye profili XAdES (BES/T/LT/LTA) imza kütüphanesi — clean-room, ETSI TS 101 903 / EN 319 132 uyumlu",
   "type": "module",
   "exports": {
@@ -8,6 +8,9 @@
     "./verify":     { "types": "./dist/verify.d.ts",     "import": "./dist/verify.js" },
     "./upgrade":    { "types": "./dist/upgrade.d.ts",    "import": "./dist/upgrade.js" },
     "./counter-sign": { "types": "./dist/counter-sign.d.ts", "import": "./dist/counter-sign.js" },
+    "./cades-sign":    { "types": "./dist/cades-sign.d.ts",    "import": "./dist/cades-sign.js" },
+    "./cades-verify":  { "types": "./dist/cades-verify.d.ts",  "import": "./dist/cades-verify.js" },
+    "./cades-upgrade": { "types": "./dist/cades-upgrade.d.ts", "import": "./dist/cades-upgrade.js" },
     "./pfx":        { "types": "./dist/pfx.d.ts",        "import": "./dist/pfx.js" },
     "./crypto":     { "types": "./dist/crypto.d.ts",     "import": "./dist/crypto.js" },
     "./c14n":       { "types": "./dist/c14n.d.ts",       "import": "./dist/c14n.js" },
