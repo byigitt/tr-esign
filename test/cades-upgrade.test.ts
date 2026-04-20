@@ -8,10 +8,19 @@ import { cadesSign } from "../src/cades-sign.ts";
 import { cadesUpgrade } from "../src/cades-upgrade.ts";
 import { cadesVerify } from "../src/cades-verify.ts";
 import { CADES_ATTR, CONTENT_TYPE } from "../src/cades-constants.ts";
+import { loadPfx } from "../src/pfx.ts";
 
 const FIXTURE = join(import.meta.dirname, "..", "reference", "fixtures", "test.p12");
 const hasPfx = (() => { try { readFileSync(FIXTURE); return true; } catch { return false; } })();
 const live = process.env.TR_XADES_LIVE_TSA === "1";
+
+function parseSd(bytes: Uint8Array): pkijs.SignedData {
+	const ab = new ArrayBuffer(bytes.byteLength);
+	new Uint8Array(ab).set(bytes);
+	const ci = new pkijs.ContentInfo({ schema: asn1js.fromBER(ab).result });
+	assert.equal(ci.contentType, CONTENT_TYPE.signedData);
+	return new pkijs.SignedData({ schema: ci.content });
+}
 
 test("cadesUpgrade — BES → T with FreeTSA",
 	{ skip: (!hasPfx || !live) && "needs fixture + TR_XADES_LIVE_TSA=1" },
@@ -25,12 +34,7 @@ test("cadesUpgrade — BES → T with FreeTSA",
 			tsa: { url: "https://freetsa.org/tsr" },
 		});
 
-		// Structural check: signerInfo.unsignedAttrs SignatureTimeStamp içermeli
-		const ab = new ArrayBuffer(t.byteLength);
-		new Uint8Array(ab).set(t);
-		const ci = new pkijs.ContentInfo({ schema: asn1js.fromBER(ab).result });
-		assert.equal(ci.contentType, CONTENT_TYPE.signedData);
-		const sd = new pkijs.SignedData({ schema: ci.content });
+		const sd = parseSd(t);
 		const unsigned = sd.signerInfos[0]!.unsignedAttrs?.attributes ?? [];
 		assert.ok(
 			unsigned.some((a) => a.type === CADES_ATTR.signatureTimeStamp),
@@ -42,6 +46,36 @@ test("cadesUpgrade — BES → T with FreeTSA",
 		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
 		if (!r.valid) return;
 		assert.equal(r.level, "T");
+	});
+
+test("cadesUpgrade — BES → LT with chain (offline)",
+	{ skip: !hasPfx && "fixture yok" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const loaded = await loadPfx(pfx, "testpass");
+		const data = new TextEncoder().encode("CAdES-LT test");
+		const bes = await cadesSign({ data, signer: { pfx, password: "testpass" } });
+		// Self-signed test cert: chain = [leaf] (kendi kendisi root).
+		const lt = await cadesUpgrade({ bytes: bes, to: "LT", chain: [loaded.certificate] });
+
+		const sd = parseSd(lt);
+		const unsigned = sd.signerInfos[0]!.unsignedAttrs?.attributes ?? [];
+		assert.ok(
+			unsigned.some((a) => a.type === CADES_ATTR.certValues),
+			"certValues unsigned attribute bekleniyor",
+		);
+		// crls/ocsps verilmediyse revocationValues olmamalı
+		assert.equal(
+			unsigned.some((a) => a.type === CADES_ATTR.revocationValues),
+			false,
+			"revocation verilmedi ama revocationValues yazıldı",
+		);
+		// verify level → LT (spec: certValues + revocationValues ikisi de LT; certValues
+		// tek başına level tespiti için yeterli sayılır)
+		const r = await cadesVerify(lt);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "LT");
 	});
 
 test("cadesUpgrade — malformed input throws", async () => {
