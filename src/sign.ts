@@ -17,6 +17,7 @@ import {
 } from "./crypto.ts";
 import { makeId } from "./ids.ts";
 import { loadPfx } from "./pfx.ts";
+import { trPolicy, type Policy, type Profile } from "./policy.ts";
 import { buildReference, buildSignedInfo, digestReference, type Transform } from "./references.ts";
 import { buildSignedProperties, type CommitmentType } from "./signed-properties.ts";
 
@@ -37,6 +38,9 @@ export type SignOptions = {
 	productionPlace?: { city?: string; state?: string; postalCode?: string; country?: string };
 	commitmentType?: CommitmentType;
 	signerRole?: { claimed: string[] };
+	// Presence triggers XAdES-EPES (adds SignaturePolicyIdentifier). String =
+	// TR preset (trPolicy lookup); object = custom policy.
+	policy?: Profile | Policy;
 };
 
 export async function sign(opts: SignOptions): Promise<string> {
@@ -61,6 +65,7 @@ export async function sign(opts: SignOptions): Promise<string> {
 		commitmentType: opts.commitmentType,
 		signerRole: opts.signerRole,
 		dataObjectFormat: { referenceId: dataRefId, mimeType: stage.dataRef.mimeType },
+		policy: typeof opts.policy === "string" ? trPolicy(opts.policy) : opts.policy,
 	});
 	const qpObject = stage.doc.createElementNS(NS.ds, "ds:Object");
 	qpObject.setAttribute("Id", makeId("Object"));

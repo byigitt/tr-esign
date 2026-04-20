@@ -70,6 +70,22 @@ test("detached — sign shape ok, verify invalid (external URI v0.1 dışı)",
 		assert.match(r.reason, /URI çözümlenemedi|Reference digest/);
 	});
 
+test("round-trip — EPES with TR P3 profile",
+	{ skip: !hasPfx && "run reference/run.sh" },
+	async () => {
+		const xml = await sign({
+			input: { xml: readFileSync(SAMPLE, "utf8"), placement: "ubl-extension" },
+			signer: { pfx: await pfxBytes(), password: "testpass" },
+			policy: "P3",
+		});
+		assert.match(xml, /<xades:SignaturePolicyIdentifier\b/);
+		assert.match(xml, /urn:oid:2\.16\.792\.1\.61\.0\.1\.5070\.3\.2\.1/); // P3 OID
+		const r = await verify(xml);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "EPES");
+	});
+
 test("tampered SignatureValue fails",
 	{ skip: !hasPfx && "run reference/run.sh" },
 	async () => {
