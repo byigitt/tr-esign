@@ -21,6 +21,11 @@ export function canonicalize(node: Node, alg: C14NAlg): Uint8Array {
 }
 
 function withInheritedNamespaces(el: Element): Element {
+	// Strict c14n 1.0 says only "visibly utilized" ancestor xmlns decls
+	// should land on the subset's topmost element. Apache Santuario (and
+	// therefore MA3) emit **all** in-scope xmlns declarations. We match the
+	// Santuario/MA3 behavior for interop — experimentally verified against
+	// MA3 fixture digests (docs/02-fixtures.md).
 	const clone = el.cloneNode(true) as Element;
 	const declared = new Set<string>();
 	for (let i = 0; i < clone.attributes.length; i++) {
