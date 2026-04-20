@@ -10,6 +10,25 @@ const FIXTURE = join(import.meta.dirname, "..", "reference", "fixtures", "test.p
 const hasPfx = (() => { try { readFileSync(FIXTURE); return true; } catch { return false; } })();
 const live = process.env.TR_XADES_LIVE_TSA === "1";
 
+test("upgrade — BES → LT (chain + CertificateValues, no T)",
+	{ skip: !hasPfx && "run reference/run.sh" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const { loadPfx } = await import("../src/pfx.ts");
+		const b = await loadPfx(pfx, "testpass");
+		const bes = await sign({
+			input: { bytes: new TextEncoder().encode("<x/>"), mimeType: "text/xml" },
+			signer: { pfx, password: "testpass" },
+		});
+		const lt = await upgrade({ xml: bes, to: "LT", chain: [b.certificate] });
+		assert.match(lt, /<xades:CertificateValues\b/);
+		assert.match(lt, /<xades:EncapsulatedX509Certificate\b/);
+		const r = await verify(lt);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "LT");
+	});
+
 test("upgrade — BES → T with FreeTSA",
 	{ skip: (!hasPfx || !live) && "needs fixture + TR_XADES_LIVE_TSA=1" },
 	async () => {
