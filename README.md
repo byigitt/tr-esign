@@ -4,8 +4,10 @@ Türkiye profili **XAdES** elektronik imza kütüphanesi. Node 20+, TypeScript.
 Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağımlılıklar.
 
 ```
-Kapsam:    XAdES-BES / -EPES / -T / -LT / -LTA
+XAdES:     BES / EPES / T / LT / LTA
            Enveloping + Enveloped (UBL-TR e-Fatura) + Detached + Counter-signature + Multi-sig
+CAdES:     BES / EPES / T   (LT/LTA yol haritasında)
+           CMS/PKCS#7 ASN.1 DER, attached + detached; RFC 5652 / ETSI TS 101 733
 Signer:    PFX (PKCS#12) veya pkcs8 + X.509 DER
 Algo:      RSA-PKCS1-v1_5 & ECDSA × SHA-256/384/512, EXC-C14N / C14N 1.0
 Policy:    TR P2/P3/P4 v1 (Elektronik İmza Kullanım Profilleri Rehberi)
@@ -143,6 +145,47 @@ ve `xades:UnsignedSignatureProperties/xades:CounterSignature` altına yerleştir
 Ayrı fonksiyon yok — `sign()` tekrar çağırın (ubl-ma3-compat modunda her sig kendi
 `ds:Object`'ini kullanır, bağımsızdır). `verify()` primary olarak ilk sig'i raporlar,
 2+ varsa `allSignatures[]` ile hepsini verir.
+
+### CAdES (CMS / PKCS#7 ASN.1 imza)
+
+XML tabanlı XAdES'in karşılığı; ikili veri (e-reçete, binary doküman, detached
+özet imza). Çıktı DER-encoded CMS SignedData (ContentInfo sarıcılı).
+
+```ts
+import { cadesSign } from "tr-xades/cades-sign";
+import { cadesVerify } from "tr-xades/cades-verify";
+import { cadesUpgrade } from "tr-xades/cades-upgrade";
+
+const pfx = new Uint8Array(readFileSync("./mali-muhur.pfx"));
+const data = readFileSync("./recete.bin");
+
+// Attached (içerik imza içinde)
+const bes = await cadesSign({
+  data,
+  signer: { pfx, password: process.env.PFX_PASS! },
+  policy: "P3",                           // TR profili → EPES
+  commitmentType: "proof-of-origin",
+});
+
+// Detached (içerik dışta; verify sırasında detachedContent verilir)
+const detached = await cadesSign({
+  data, signer: { pfx, password },
+  contentIncluded: false,
+});
+
+// Doğrulama — attached kendi kendine; detached için harici veri verilir
+const r = await cadesVerify(bes);
+const rDet = await cadesVerify(detached, { detachedContent: data });
+
+// Seviye yükseltme (yalnız T; LT/LTA v0.3.x)
+const t = await cadesUpgrade({
+  bytes: bes, to: "T",
+  tsa: { url: "http://tzd.kamusm.gov.tr" },
+});
+```
+
+VerifyResult XAdES ile aynı tip; seviye signedAttrs/unsignedAttrs inceleyerek
+türetilir (BES / EPES / T / LT / LTA).
 
 ### Yardımcı modüller
 
