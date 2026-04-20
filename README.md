@@ -6,8 +6,9 @@ Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağı
 ```
 XAdES:     BES / EPES / T / LT / LTA
            Enveloping + Enveloped (UBL-TR e-Fatura) + Detached + Counter-signature + Multi-sig
-CAdES:     BES / EPES / T   (LT/LTA yol haritasında)
+CAdES:     BES / EPES / T / LT / LTA
            CMS/PKCS#7 ASN.1 DER, attached + detached; RFC 5652 / ETSI TS 101 733
+ASiC:      ASiC-S + ASiC-E zip konteyner; ETSI EN 319 162-1 §A.1
 Signer:    PFX (PKCS#12) veya pkcs8 + X.509 DER
 Algo:      RSA-PKCS1-v1_5 & ECDSA × SHA-256/384/512, EXC-C14N / C14N 1.0
 Policy:    TR P2/P3/P4 v1 (Elektronik İmza Kullanım Profilleri Rehberi)
@@ -177,15 +178,61 @@ const detached = await cadesSign({
 const r = await cadesVerify(bes);
 const rDet = await cadesVerify(detached, { detachedContent: data });
 
-// Seviye yükseltme (yalnız T; LT/LTA v0.3.x)
-const t = await cadesUpgrade({
-  bytes: bes, to: "T",
-  tsa: { url: "http://tzd.kamusm.gov.tr" },
-});
+// Seviye yükseltme — T, LT, LTA zincirlenebilir.
+const t   = await cadesUpgrade({ bytes: bes, to: "T", tsa: { url: "http://tzd.kamusm.gov.tr" } });
+const lt  = await cadesUpgrade({ bytes: t,   to: "LT", chain: [leafDer, intDer, rootDer], ocsps, crls });
+const lta = await cadesUpgrade({ bytes: lt,  to: "LTA", tsa: { url: "http://tzd.kamusm.gov.tr" } });
 ```
+
+- **T**: `signature-time-stamp` (ETSI §6.1.1) — SignerInfo.signature üzerinde RFC 3161.
+- **LT**: `certificate-values` + `revocation-values` (§6.2) — tüm zincir + CRL/OCSP gömülür.
+- **LTA**: `archive-time-stamp-v2` (§6.4.1, OID 1.2.840.113549.1.9.16.2.48) — SignedData alınırsa
+  concat hash’i üzerinde RFC 3161. Detached için `detachedContent` geçilir.
 
 VerifyResult XAdES ile aynı tip; seviye signedAttrs/unsignedAttrs inceleyerek
 türetilir (BES / EPES / T / LT / LTA).
+
+### ASiC — imzalı zip konteyner (ETSI EN 319 162-1)
+
+XAdES veya CAdES imzası + orijinal veri dosyalarını tek bir zip’e paketler.
+İmza üretme ile paketleme birbirinden bağımsız: **önce `sign()` / `cadesSign()`,
+sonra `createAsic()`**.
+
+```ts
+import { createAsic, readAsic } from "tr-xades/asic";
+import { cadesSign } from "tr-xades/cades-sign";
+
+const data = readFileSync("./recete.bin");
+const sig = await cadesSign({ data, signer, contentIncluded: false });
+
+// ASiC-S — tek veri + tek imza
+const asicS = createAsic({
+  type: "asic-s",
+  data: { name: "recete.bin", bytes: data },
+  signature: { bytes: sig, format: "cades" },
+});
+writeFileSync("./recete.asice", asicS);
+
+// ASiC-E — çok dosya + (ops.) manifest
+const asicE = createAsic({
+  type: "asic-e",
+  dataFiles: [
+    { name: "fatura.xml", bytes: faturaXml },
+    { name: "ek.pdf", bytes: ekPdf },
+  ],
+  signatures: [
+    { bytes: xadesSig, format: "xades" },
+  ],
+});
+
+// Okuma
+const { type, dataFiles, signatures, manifests } = readAsic(asicS);
+```
+
+Layout (EN 319 162-1 §A.1):
+- `mimetype` — FIRST entry, STORED, `application/vnd.etsi.asic-s+zip` veya `asic-e+zip`
+- Kök: veri dosyaları (İ-S tek, E çok)
+- `META-INF/signatures.xml` (XAdES) veya `signature.p7s` (CAdES). E için `NNN` indeks.
 
 ### Yardımcı modüller
 
