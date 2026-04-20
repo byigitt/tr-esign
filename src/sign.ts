@@ -25,7 +25,8 @@ const XMLNS_NS = "http://www.w3.org/2000/xmlns/";
 
 export type SignOptions = {
 	input:
-		| { xml: string; placement: "ubl-extension" | "root-append" } // enveloped
+		| { xml: string; placement: "ubl-extension" | "root-append" } // W3C enveloped
+		| { xml: string; placement: "ubl-ma3-compat" } // UBL envelope + enveloping-embedded (MA3 interop)
 		| { bytes: Uint8Array; mimeType: string } // enveloping (data embedded)
 		| { uri: string; data: Uint8Array; mimeType: string }; // detached (external URI)
 	signer:
@@ -53,9 +54,6 @@ export async function sign(opts: SignOptions): Promise<string> {
 
 	const stage = stageDocument(opts, signatureId);
 
-	// KeyInfo
-	stage.signatureEl.appendChild(buildKeyInfo(stage.doc, resolved.certificate));
-
 	// SignedProperties → QualifyingProperties → ds:Object
 	const sp = await buildSignedProperties(stage.doc, {
 		certificate: resolved.certificate,
@@ -73,7 +71,12 @@ export async function sign(opts: SignOptions): Promise<string> {
 	qp.setAttribute("Target", `#${signatureId}`);
 	qp.appendChild(sp.element);
 	qpObject.appendChild(qp);
+
+	// XMLDSig şema sırası: SignedInfo, SignatureValue, KeyInfo, Object*.
+	// SignedInfo + SignatureValue aşağıdaki adımda őne eklenir.
+	stage.signatureEl.appendChild(buildKeyInfo(stage.doc, resolved.certificate));
 	stage.signatureEl.appendChild(qpObject);
+	if (stage.dataObject) stage.signatureEl.appendChild(stage.dataObject);
 
 	// Data ref digest. Inject real signatureId into enveloped-signature transforms.
 	const dataTransforms: Transform[] = stage.dataRef.transforms.map((t) =>
@@ -125,6 +128,7 @@ type Stage = {
 	doc: Document;
 	signatureEl: Element;
 	dataRef: { uri: string; mimeType: string; transforms: Transform[]; data: Node | Uint8Array };
+	dataObject?: Element; // enveloping/ubl-ma3-compat'ta signature sonuna eklenir
 };
 
 function stageDocument(opts: SignOptions, signatureId: string): Stage {
@@ -153,19 +157,13 @@ function stageDocument(opts: SignOptions, signatureId: string): Stage {
 		signatureEl.setAttribute("Id", signatureId);
 		signatureEl.setAttributeNS(XMLNS_NS, "xmlns:xades", NS.xades);
 
-		const dataObjectId = makeId("Object");
-		const dataObject = doc.createElementNS(NS.ds, "ds:Object");
-		dataObject.setAttribute("Id", dataObjectId);
-		dataObject.setAttribute("MimeType", opts.input.mimeType);
-		dataObject.setAttribute("Encoding", "http://www.w3.org/2000/09/xmldsig#base64");
-		dataObject.appendChild(doc.createTextNode(Buffer.from(opts.input.bytes).toString("base64")));
-		signatureEl.appendChild(dataObject);
-
+		const dataObject = makeDataObject(doc, opts.input.bytes, opts.input.mimeType);
 		return {
 			doc,
 			signatureEl,
+			dataObject,
 			dataRef: {
-				uri: `#${dataObjectId}`,
+				uri: `#${dataObject.getAttribute("Id")}`,
 				mimeType: opts.input.mimeType,
 				transforms: [],
 				data: dataObject as unknown as Node,
@@ -173,26 +171,27 @@ function stageDocument(opts: SignOptions, signatureId: string): Stage {
 		};
 	}
 
-	// Enveloped: parse envelope, create Signature, place by strategy.
-	// xmldom types and lib.dom types don't fully agree; stay in xmldom for the
-	// parse/placement step, then cast once at the end.
-	/* eslint-disable @typescript-eslint/no-explicit-any */
-	const xmlDoc: any = new DOMParser().parseFromString(opts.input.xml, "text/xml");
-	const root: any = xmlDoc.documentElement;
-	const signatureEl: any = xmlDoc.createElementNS(NS.ds, "ds:Signature");
-	signatureEl.setAttribute("Id", signatureId);
-	signatureEl.setAttributeNS(XMLNS_NS, "xmlns:xades", NS.xades);
-
-	if (opts.input.placement === "ubl-extension") {
-		const anchor = xmlDoc.getElementsByTagNameNS(UBL.ext, "ExtensionContent").item(0);
-		if (!anchor) throw new Error("ubl-extension: ext:ExtensionContent bulunamadı");
-		anchor.appendChild(signatureEl);
-	} else {
-		root.appendChild(signatureEl);
+	if (opts.input.placement === "ubl-ma3-compat") {
+		// Enveloping-embedded-in-envelope: envelope'u parse et, ds:Signature'ı
+		// ExtensionContent içine yerleştir, input XML'ini base64 halinde ds:Object
+		// içinde tut, reference #ObjectId. MA3 verifier bu yapıyı kabul eder.
+		const { doc, signatureEl } = parseAndStageEnveloped(opts.input, signatureId, "ubl-ma3-compat");
+		const dataObject = makeDataObject(doc, new TextEncoder().encode(opts.input.xml), "text/xml");
+		return {
+			doc,
+			signatureEl,
+			dataObject,
+			dataRef: {
+				uri: `#${dataObject.getAttribute("Id")}`,
+				mimeType: "text/xml",
+				transforms: [],
+				data: dataObject as unknown as Node,
+			},
+		};
 	}
-	const doc: Document = xmlDoc;
-	/* eslint-enable @typescript-eslint/no-explicit-any */
 
+	// W3C enveloped (placement: ubl-extension veya root-append).
+	const { doc, signatureEl, root } = parseAndStageEnveloped(opts.input, signatureId, opts.input.placement);
 	return {
 		doc,
 		signatureEl,
@@ -200,9 +199,46 @@ function stageDocument(opts: SignOptions, signatureId: string): Stage {
 			uri: "",
 			mimeType: "text/xml",
 			transforms: [{ kind: "enveloped-signature" }, { kind: "c14n", alg: "exc-c14n" }],
-			data: root as unknown as Node,
+			data: root,
 		},
 	};
+}
+
+function makeDataObject(doc: Document, data: Uint8Array, mimeType: string): Element {
+	const id = makeId("Object");
+	const el = doc.createElementNS(NS.ds, "ds:Object");
+	el.setAttribute("Id", id);
+	el.setAttribute("MimeType", mimeType);
+	el.setAttribute("Encoding", "http://www.w3.org/2000/09/xmldsig#base64");
+	el.appendChild(doc.createTextNode(Buffer.from(data).toString("base64")));
+	return el;
+}
+
+// Envelope'u parse et, ds:Signature üret, placement moduna göre yerleştir.
+// xmldom ile lib.dom tiplerini karıştırmamak için içeride any kullanılır.
+function parseAndStageEnveloped(
+	input: { xml: string },
+	signatureId: string,
+	placement: "ubl-extension" | "root-append" | "ubl-ma3-compat",
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): { doc: Document; signatureEl: Element; root: any } {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const xmlDoc: any = new DOMParser().parseFromString(input.xml, "text/xml");
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const root: any = xmlDoc.documentElement;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const signatureEl: any = xmlDoc.createElementNS(NS.ds, "ds:Signature");
+	signatureEl.setAttribute("Id", signatureId);
+	signatureEl.setAttributeNS(XMLNS_NS, "xmlns:xades", NS.xades);
+
+	if (placement === "ubl-extension" || placement === "ubl-ma3-compat") {
+		const anchor = xmlDoc.getElementsByTagNameNS(UBL.ext, "ExtensionContent").item(0);
+		if (!anchor) throw new Error(`${placement}: ext:ExtensionContent bulunamadı`);
+		anchor.appendChild(signatureEl);
+	} else {
+		root.appendChild(signatureEl);
+	}
+	return { doc: xmlDoc, signatureEl, root };
 }
 
 function buildKeyInfo(doc: Document, certDer: Uint8Array): Element {

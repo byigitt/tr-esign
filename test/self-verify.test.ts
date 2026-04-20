@@ -51,6 +51,26 @@ test("round-trip — enveloped UBL",
 		assert.equal(r.level, "BES");
 	});
 
+test("round-trip — UBL MA3-compat (enveloping-embedded in envelope)",
+	{ skip: !hasPfx && "run reference/run.sh" },
+	async () => {
+		const xml = await sign({
+			input: { xml: readFileSync(SAMPLE, "utf8"), placement: "ubl-ma3-compat" },
+			signer: { pfx: await pfxBytes(), password: "testpass" },
+			signingTime: new Date("2026-04-20T11:00:00Z"),
+		});
+		// Structure: envelope korunur, signature ExtensionContent içinde, data ds:Object'te base64
+		assert.match(xml, /<Invoice\b/);
+		assert.match(xml, /<ext:ExtensionContent>[\s\S]*<ds:Signature\b/);
+		assert.match(xml, /<ds:Object[^>]*Encoding="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#base64"/);
+		// No enveloped-signature transform (farkının göstergesi)
+		assert.doesNotMatch(xml, /Algorithm="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#enveloped-signature"/);
+		const r = await verify(xml);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "BES");
+	});
+
 test("detached — sign shape ok, verify invalid (external URI v0.1 dışı)",
 	{ skip: !hasPfx && "run reference/run.sh" },
 	async () => {
