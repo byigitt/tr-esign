@@ -4,9 +4,31 @@ Tek amaç: MA3 Java kütüphanesi ile **referans XAdES imzaları** üretmek. tr-
 TypeScript implementasyonu bu imzalarla cross-verify edilir.
 
 - `driver/Ma3Ref.java` — imzalayıcı + runtime OID dump
-- `fixtures/` — test input'ları (`test.p12` self-signed RSA, `sample-invoice.xml`)
+- `driver/Ma3Verify.java` — tr-xades çıktısını MA3 ile doğrula (ters yön)
+- `gen-test-ca.sh` — openssl ile 3-katmanlı test CA hiyerarşisi üretir
+- `fixtures/` — test input'ları (`test.p12` self-signed, `sample-invoice.xml`,
+  opsiyonel `test-chain.p12` gerçek-zincirli)
 - `lib/` — MA3 jar'ları (**git'te yok**; `/tmp/ma3-esign/java/lib/*.jar` kopyalanır)
 - `out/` — üretilen imzalı XML'ler + `meta.json`
+
+## CAdES fixture — bilinen sınırlama
+
+MA3'ün `BaseSignedData.addSigner()` metodu CAdES-BES için bile **online
+revocation kontrolü** yapıyor. `P_VALIDATION_WITHOUT_FINDERS=true` +
+empty `P_ALL_CRLS` + empty `P_ALL_BASIC_OCSP_RESPONSES` verilse bile iten
+stack: `CertificateStatusInfo.getCertificate()` NPE. Test CA placeholder
+OCSP/CDP URL'lerine ulaşılamıyor.
+
+Çözüm yolları (v0.5+):
+- `docker run openssl ocsp -index ca.db -CA root.pem -rsigner responder.pem
+  -port 8080` ile yerel responder
+- Gerçek TR mali mühür PFX (üretim)
+- `Ma3Verify.java`'yı CAdES verify için genişletip **ters yön** cross-verify
+
+Bugun: `cades-cross-verify.test.ts` `reference/out/cades-bes.p7s` var mı diye
+bakıyor; yoksa skip ediyor. tr-xades CAdES sign ↔ verify kendi round-trip'i
+spec-compliant (RFC 5652 / RFC 5035 / ETSI TS 101 733) olduğu için
+imza üretimi ve doğrulama güvenilir. XAdES interop tam kanıtlı.
 
 ## Kurulum
 
