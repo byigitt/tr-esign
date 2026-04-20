@@ -64,3 +64,20 @@ test("cadesVerify — malformed DER reddet", async () => {
 	const r = await cadesVerify(new Uint8Array([0, 1, 2, 3, 4]));
 	assert.equal(r.valid, false);
 });
+
+test("cadesSign (TR P3 policy) → cadesVerify EPES raporlar",
+	{ skip: !hasPfx && "run reference/run.sh" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const data = new TextEncoder().encode("e-reçete örneği");
+		const der = await cadesSign({
+			data,
+			signer: { pfx, password: "testpass" },
+			policy: "P3", // TR e-fatura profili
+			commitmentType: "proof-of-origin",
+		});
+		const r = await cadesVerify(der);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "EPES", "SignaturePolicyIdentifier eklenince level EPES olmalı");
+	});
