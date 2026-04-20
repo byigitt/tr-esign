@@ -46,3 +46,22 @@ test("upgrade — BES → T with FreeTSA",
 		if (!r.valid) return;
 		assert.equal(r.level, "T");
 	});
+
+test("upgrade — LT → LTA with FreeTSA",
+	{ skip: (!hasPfx || !live) && "needs fixture + TR_XADES_LIVE_TSA=1" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const { loadPfx } = await import("../src/pfx.ts");
+		const b = await loadPfx(pfx, "testpass");
+		const bes = await sign({
+			input: { bytes: new TextEncoder().encode("<x/>"), mimeType: "text/xml" },
+			signer: { pfx, password: "testpass" },
+		});
+		const lt = await upgrade({ xml: bes, to: "LT", chain: [b.certificate] });
+		const lta = await upgrade({ xml: lt, to: "LTA", tsa: { url: "https://freetsa.org/tsr" } });
+		assert.match(lta, /<xades:ArchiveTimeStamp\b/);
+		const r = await verify(lta);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "LTA");
+	});

@@ -1,10 +1,11 @@
-// XAdES seviye yükseltici. BES/EPES → T → LT (→ LTA faz 7.5).
+// XAdES seviye yükseltici. BES/EPES → T → LT → LTA.
 //
 // Tek `upgrade()` fonksiyonu, to parametresine göre davranış:
-//   to:"T"  → SignatureTimeStamp ekle (ETSI TS 101 903 §7.3)
-//   to:"LT" → CertificateValues + RevocationValues ekle (§ XAdES-X-L pattern).
-// Level cascading yok — kullanıcı hedeflediği seviyeye göre sırayla çağırır.
-// LT çağrısı T'yi otomatik eklemez; amaç saf ek yapılması (her upgrade tek iş).
+//   to:"T"   → SignatureTimeStamp ekle (ETSI TS 101 903 §7.3)
+//   to:"LT"  → CertificateValues + RevocationValues ekle (§ XAdES-X-L pattern)
+//   to:"LTA" → ArchiveTimeStamp ekle (§A.1.5.2 / EN 319 132 §5.5.2)
+// Level cascading yok — kullanıcı hedeflediği seviyeye göre sırayla çağırır
+// (BES→T→LT→LTA). Her upgrade tek iş.
 
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { canonicalize, c14nAlgFromUri, type C14NAlg } from "./c14n.ts";
@@ -15,7 +16,8 @@ import { getTimestamp } from "./tsp.ts";
 
 export type UpgradeOptions =
 	| { xml: string; to: "T"; tsa?: { url?: string; policyOid?: string }; digestAlgorithm?: HashAlg; c14nAlgorithm?: C14NAlg }
-	| { xml: string; to: "LT"; chain: Uint8Array[]; crls?: Uint8Array[]; ocsps?: Uint8Array[] };
+	| { xml: string; to: "LT"; chain: Uint8Array[]; crls?: Uint8Array[]; ocsps?: Uint8Array[] }
+	| { xml: string; to: "LTA"; tsa?: { url?: string; policyOid?: string }; digestAlgorithm?: HashAlg; c14nAlgorithm?: C14NAlg };
 
 export async function upgrade(opts: UpgradeOptions): Promise<string> {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +30,7 @@ export async function upgrade(opts: UpgradeOptions): Promise<string> {
 
 	if (opts.to === "T") await addSignatureTimeStamp(doc, sig, usprops, opts);
 	else if (opts.to === "LT") addLongTermValues(doc, usprops, opts);
+	else if (opts.to === "LTA") await addArchiveTimeStamp(doc, sig, usprops, opts);
 
 	return new XMLSerializer().serializeToString(doc);
 }
@@ -93,6 +96,77 @@ function encap(doc: any, qname: string, der: Uint8Array): any {
 	const e = doc.createElementNS(NS.xades, qname);
 	e.appendChild(doc.createTextNode(Buffer.from(der).toString("base64")));
 	return e;
+}
+
+// ---- XAdES-LTA ----
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function addArchiveTimeStamp(doc: any, sig: any, usprops: any, o: Extract<UpgradeOptions, { to: "LTA" }>): Promise<void> {
+	const c14nAlg = o.c14nAlgorithm ?? detectC14n(sig);
+	const hashAlg = o.digestAlgorithm ?? "SHA-256";
+
+	// ETSI TS 101 903 §A.1.5.2: ArchiveTimeStamp'ın TSToken message imprint'i,
+	// aşağıdakilerin canonicalize edilmiş byte'larının sıralı concatenation'ı:
+	//   1. Her ds:Reference'ın referanslandığı data (in-doc Object'ler bu sınıfa girer)
+	//   2. ds:SignedInfo
+	//   3. ds:SignatureValue
+	//   4. ds:KeyInfo (varsa)
+	//   5. xades:UnsignedSignatureProperties çocukları (önceki ArchiveTimeStamp'lar HİÇ).
+	const parts: Uint8Array[] = [];
+
+	// 1 + 4: Objects (data objects + QualifyingProperties wrapper). ds:Object
+	// directly under ds:Signature kapsar hem veriyi hem QualifyingProperties'i.
+	for (const obj of childrenByTag(sig, NS.ds, "Object")) parts.push(canonicalize(obj, c14nAlg));
+
+	const si = firstChild(sig, NS.ds, "SignedInfo");
+	if (!si) throw new Error("ds:SignedInfo bulunamadı");
+	parts.push(canonicalize(si, c14nAlg));
+
+	const sv = firstChild(sig, NS.ds, "SignatureValue");
+	if (!sv) throw new Error("ds:SignatureValue bulunamadı");
+	parts.push(canonicalize(sv, c14nAlg));
+
+	const ki = firstChild(sig, NS.ds, "KeyInfo");
+	if (ki) parts.push(canonicalize(ki, c14nAlg));
+
+	for (let n = usprops.firstChild; n; n = n.nextSibling) {
+		if (n.nodeType !== 1) continue;
+		// Onceki ArchiveTimeStamp'lar DİŞLANIR (xades 1.3.2 ve xades141 her ikisi).
+		if (n.localName === "ArchiveTimeStamp") continue;
+		parts.push(canonicalize(n, c14nAlg));
+	}
+
+	const total = new Uint8Array(parts.reduce((s, p) => s + p.byteLength, 0));
+	let off = 0;
+	for (const p of parts) { total.set(p, off); off += p.byteLength; }
+
+	const d = await digest(hashAlg, total);
+	const ts = await getTimestamp({
+		digest: d,
+		digestAlgorithm: hashAlg,
+		tsaUrl: o.tsa?.url,
+		policyOid: o.tsa?.policyOid,
+	});
+
+	const at = doc.createElementNS(NS.xades, "xades:ArchiveTimeStamp");
+	at.setAttribute("Id", makeId("Archive-TimeStamp"));
+	const cm = doc.createElementNS(NS.ds, "ds:CanonicalizationMethod");
+	cm.setAttribute("Algorithm", C14N[c14nAlg]);
+	at.appendChild(cm);
+	const ets = doc.createElementNS(NS.xades, "xades:EncapsulatedTimeStamp");
+	ets.appendChild(doc.createTextNode(Buffer.from(ts.token).toString("base64")));
+	at.appendChild(ets);
+	usprops.appendChild(at);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function childrenByTag(parent: any, ns: string, local: string): any[] {
+	const out: unknown[] = [];
+	for (let n = parent.firstChild; n; n = n.nextSibling) {
+		if (n.nodeType === 1 && n.namespaceURI === ns && n.localName === local) out.push(n);
+	}
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return out as any[];
 }
 
 // ---- shared helpers ----
