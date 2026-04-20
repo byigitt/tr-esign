@@ -28,7 +28,17 @@ export type VerifyResult =
 	| { valid: true; level: Level; signer: SignerInfo; signedAt?: Date }
 	| { valid: false; reason: string; detail?: unknown };
 
-export async function verify(xml: string): Promise<VerifyResult> {
+export type ResolverResult = Uint8Array | Node | null | Promise<Uint8Array | Node | null>;
+export type Resolver = (uri: string) => ResolverResult;
+
+export type VerifyOptions = {
+	// External URI resolver. Çağrılır: detached imza veya in-document fragment
+	// olmayan referanslar için. Döndürdüğü bytes/Node digestReference'a beslenir.
+	// `null` döner veya eksikse referans "URI çözümlenemedi" hatasıyla reddedilir.
+	resolver?: Resolver;
+};
+
+export async function verify(xml: string, opts: VerifyOptions = {}): Promise<VerifyResult> {
 	try {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const doc: any = new DOMParser().parseFromString(xml, "text/xml");
@@ -60,7 +70,7 @@ export async function verify(xml: string): Promise<VerifyResult> {
 		// Reference digest'lerini yeniden hesapla.
 		const refs = childrenByTag(si, NS.ds, "Reference");
 		for (const ref of refs) {
-			const err = await verifyReference(doc, sig, ref);
+			const err = await verifyReference(doc, sig, ref, opts.resolver);
 			if (err) return invalid(err, { referenceUri: ref.getAttribute("URI") });
 		}
 
@@ -85,7 +95,7 @@ export async function verify(xml: string): Promise<VerifyResult> {
 // ---- Reference digest verification ----
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function verifyReference(doc: any, signatureEl: any, ref: any): Promise<string | null> {
+async function verifyReference(doc: any, signatureEl: any, ref: any, resolver?: Resolver): Promise<string | null> {
 	const uri = ref.getAttribute("URI") ?? "";
 	const digestMethod = firstChild(ref, NS.ds, "DigestMethod")?.getAttribute("Algorithm");
 	const digestValue = firstChild(ref, NS.ds, "DigestValue");
@@ -96,7 +106,7 @@ async function verifyReference(doc: any, signatureEl: any, ref: any): Promise<st
 	const transforms = parseTransforms(firstChild(ref, NS.ds, "Transforms"), signatureEl.getAttribute("Id") ?? undefined);
 	if (transforms === null) return "desteklenmeyen Transform Algorithm";
 
-	const data = resolveUri(doc, uri);
+	const data = await resolveUri(doc, uri, resolver);
 	if (data === null) return `URI çözümlenemedi: ${uri}`;
 
 	const computed = await digestReference(data, transforms, hashAlg);
@@ -106,11 +116,12 @@ async function verifyReference(doc: any, signatureEl: any, ref: any): Promise<st
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveUri(doc: any, uri: string): Node | Uint8Array | null {
+async function resolveUri(doc: any, uri: string, resolver?: Resolver): Promise<Node | Uint8Array | null> {
 	if (uri === "") return doc.documentElement;
 	if (uri.startsWith("#")) return findById(doc, uri.slice(1));
-	// External URIs: v0.1 scope değil.
-	return null;
+	// External URI (http://, file://, relative path) → resolver gerekir.
+	if (!resolver) return null;
+	return (await resolver(uri)) ?? null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
