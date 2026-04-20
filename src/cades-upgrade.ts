@@ -113,12 +113,19 @@ async function addArchiveTimeStamp(
 	for (const c of sd.certificates ?? []) parts.push(c.toSchema().toBER(false));
 	for (const r of sd.crls ?? []) parts.push(r.toSchema().toBER(false));
 
-	parts.push(new asn1js.Integer({ value: si.version }).toBER(false));
-	parts.push((si.sid as asn1js.BaseBlock).toBER(false));
-	parts.push(si.digestAlgorithm.toSchema().toBER(false));
-	if (si.signedAttrs) parts.push(si.signedAttrs.toSchema().toBER(false));
-	parts.push(si.signatureAlgorithm.toSchema().toBER(false));
-	parts.push(si.signature.toBER(false));
+	// SignerInfo alan sırası (RFC 5652 §5.3): version, sid, digestAlgorithm,
+	// [0]signedAttrs?, signatureAlgorithm, signature, [1]unsignedAttrs?.
+	// si.sid parse edilmiş SignedData'da pkijs ile raw asn1js veya pkijs objesi
+	// olabilir; güvenli yol: si.toSchema() üzerinden inner node'ları al.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const siNodes = (si.toSchema() as any).valueBlock.value as asn1js.BaseBlock[];
+	for (const n of siNodes) {
+		// [1] IMPLICIT unsignedAttrs hariç (tagClass=3 && tagNumber=1)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const id = (n as any).idBlock;
+		if (id?.tagClass === 3 && id?.tagNumber === 1) continue;
+		parts.push(n.toBER(false));
+	}
 
 	if (si.unsignedAttrs) {
 		for (const a of si.unsignedAttrs.attributes) {

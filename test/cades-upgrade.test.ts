@@ -78,6 +78,31 @@ test("cadesUpgrade — BES → LT with chain (offline)",
 		assert.equal(r.level, "LT");
 	});
 
+test("cadesUpgrade — BES → T → LT → LTA round-trip (live TSA)",
+	{ skip: (!hasPfx || !live) && "needs fixture + TR_XADES_LIVE_TSA=1" },
+	async () => {
+		const pfx = new Uint8Array(readFileSync(FIXTURE));
+		const loaded = await loadPfx(pfx, "testpass");
+		const data = new TextEncoder().encode("CAdES-LTA test");
+		const bes = await cadesSign({ data, signer: { pfx, password: "testpass" } });
+
+		const t = await cadesUpgrade({ bytes: bes, to: "T", tsa: { url: "https://freetsa.org/tsr" } });
+		const lt = await cadesUpgrade({ bytes: t, to: "LT", chain: [loaded.certificate] });
+		const lta = await cadesUpgrade({ bytes: lt, to: "LTA", tsa: { url: "https://freetsa.org/tsr" } });
+
+		const sd = parseSd(lta);
+		const unsigned = sd.signerInfos[0]!.unsignedAttrs?.attributes ?? [];
+		const types = new Set(unsigned.map((a) => a.type));
+		assert.ok(types.has(CADES_ATTR.signatureTimeStamp), "T attribute bekleniyor");
+		assert.ok(types.has(CADES_ATTR.certValues), "LT attribute bekleniyor");
+		assert.ok(types.has(CADES_ATTR.archiveTimeStampV2), "LTA attribute bekleniyor");
+
+		const r = await cadesVerify(lta);
+		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
+		if (!r.valid) return;
+		assert.equal(r.level, "LTA");
+	});
+
 test("cadesUpgrade — malformed input throws", async () => {
 	await assert.rejects(() => cadesUpgrade({ bytes: new Uint8Array([0, 1, 2, 3]), to: "T" }));
 });
