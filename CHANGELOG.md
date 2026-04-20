@@ -2,6 +2,57 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [0.3.0] — CAdES (CMS/PKCS#7)
+
+XAdES'le paralel ikinci imza formatı: CMS SignedData üzerinde ASN.1 DER
+binary imza. TR'de e-reçete, ikili doküman ve detached özet imza
+senaryolarında kullanılır.
+
+### Eklendi
+
+- **`src/cades-sign.ts`** — `cadesSign(opts)`. Attached (içerik imza içinde)
+  ve detached (harici veri) mod. Standart signedAttrs: contentType +
+  messageDigest + signingCertificateV2 (RFC 5035) + signingTime. Opsiyonel:
+  signaturePolicyIdentifier (EPES), commitmentTypeIndication.
+- **`src/cades-verify.ts`** — `cadesVerify(bytes, opts?)`. CMS SignedData +
+  pkijs verify. VerifyResult tipi XAdES ile aynı (certToSignerInfo
+  verify.ts'ten ortak export). Seviye tespiti signed/unsigned attribute
+  varlığından: signaturePolicy→EPES, signatureTimeStamp→T,
+  certValues/revocationValues→LT, archiveTimeStampV2/V3→LTA.
+- **`src/cades-upgrade.ts`** — `cadesUpgrade({bytes, to:'T', tsa?})`.
+  ETSI TS 101 733 §6.1.1 signature-time-stamp: SignerInfo.signature üzerinde
+  RFC 3161 timestamp, unsignedAttrs'e eklenir. LT/LTA v0.3.x adayı.
+- **`src/cades-attributes.ts`** — 9 pkijs.Attribute builder (contentType,
+  messageDigest, signingTime UTCTime/GeneralizedTime, signingCertificateV2
+  ESSCertIDv2 + issuerSerial, signaturePolicyIdentifier, commitmentTypeIndication,
+  signatureTimeStamp).
+- **`src/cades-constants.ts`** — RFC 5652 + ETSI TS 101 733 OID'leri +
+  HASH_OID mapping (NIST alg OID).
+- **Subpath exports**: `tr-xades/cades-sign`, `tr-xades/cades-verify`,
+  `tr-xades/cades-upgrade`.
+
+### Değişti
+
+- `src/pfx.ts` — pkijs crypto engine'i `@peculiar/webcrypto`'dan Node 22 global
+  `crypto.subtle`'a taşındı. CryptoKey'ler artık `crypto.ts` ile `pkijs`
+  arasında uyumlu. `@peculiar/webcrypto` deps arasında kalmaya devam ediyor ama
+  kullanılmıyor (sonraki release'te kaldırılabilir).
+- `src/verify.ts` — `certToSignerInfo(cert: pkijs.Certificate): SignerInfo`
+  export edildi (verify.ts + cades-verify.ts ortak kullanımı için).
+- `src/sign.ts` — `resolveSigner` ve `SignerInput` tipi CAdES tarafından da
+  kullanıldığı için genel input parametresi kabul edecek şekilde imza sadeleşti.
+- `reference/fixtures/test.p12` — KeyUsage=digitalSignature,nonRepudiation
+  extension'ıyla regen edildi (MA3 CAdES first gate'i için gerekli).
+
+### Bilinen sınırlamalar
+
+- **MA3 CAdES interop testi fixture bekliyor**: MA3 `addSigner` default path
+  validation yapar ve self-signed test cert'imizi kabul etmez. Gerçek TR
+  mali mühür (Kamu SM NES zinciriyle imzalı) PFX sağlandığında
+  `test/cades-cross-verify.test.ts` otomatik aktif olur.
+- CAdES-LT / CAdES-LTA v0.3.0 kapsamında değil.
+- SignerLocation, SignerAttr attribute'ları BES için zorunlu değil — eklenmedi.
+
 ## [0.2.0] — MA3 interop + XAdES gap closure
 
 ### Eklendi
