@@ -13,5 +13,6 @@ reference/build/
 reference/fixtures/*.pfx
 reference/fixtures/*.p12
 reference/fixtures/*.keystore
+reference/fixtures/*.pem
 reference/fixtures/lisans.xml
 docs/
