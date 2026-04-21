@@ -192,8 +192,10 @@ emailAddress = optional
 basicConstraints = CA:FALSE
 EOF
 
-openssl ca -config "$DOCKER_OCSP_DIR/root.cnf" -gencrl -out "$DOCKER_OCSP_DIR/www/root.crl" -batch 2>/dev/null
-openssl ca -config "$DOCKER_OCSP_DIR/int.cnf" -gencrl -out "$DOCKER_OCSP_DIR/www/int.crl" -batch 2>/dev/null
+openssl ca -config "$DOCKER_OCSP_DIR/root.cnf" -gencrl -out "$TMP/root.crl.pem" -batch 2>/dev/null
+openssl ca -config "$DOCKER_OCSP_DIR/int.cnf" -gencrl -out "$TMP/int.crl.pem" -batch 2>/dev/null
+openssl crl -in "$TMP/root.crl.pem" -out "$DOCKER_OCSP_DIR/www/root.crl" -outform DER 2>/dev/null
+openssl crl -in "$TMP/int.crl.pem" -out "$DOCKER_OCSP_DIR/www/int.crl" -outform DER 2>/dev/null
 
 echo "done:"
 echo "  reference/fixtures/test-chain.p12        (leaf+chain, şifre $PASS)"

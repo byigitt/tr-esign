@@ -31,7 +31,10 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
+import tr.gov.tubitak.uekae.esya.api.asn.ocsp.EBasicOCSPResponse;
+import tr.gov.tubitak.uekae.esya.api.asn.ocsp.EOCSPResponse;
 import tr.gov.tubitak.uekae.esya.api.asn.profile.TurkishESigProfile;
+import tr.gov.tubitak.uekae.esya.api.asn.x509.ECRL;
 import tr.gov.tubitak.uekae.esya.api.asn.x509.ECertificate;
 import tr.gov.tubitak.uekae.esya.api.cmssignature.SignableByteArray;
 import tr.gov.tubitak.uekae.esya.api.cmssignature.attribute.AllEParameters;
@@ -50,9 +53,9 @@ import tr.gov.tubitak.uekae.esya.api.xmlsignature.SignatureType;
 import tr.gov.tubitak.uekae.esya.api.xmlsignature.XMLSignature;
 
 public class Ma3Ref {
-  static final String PFX = "../fixtures/test.p12";
+  static final String DEFAULT_PFX = "../fixtures/test-chain.p12";
+  static final String FALLBACK_PFX = "../fixtures/test.p12";
   static final String PFX_PASS = "testpass";
-  static final String ALIAS = "testsigner";
   static final String INPUT = "../fixtures/sample-invoice.xml";
   static final String OUT = "../out/";
 
@@ -72,13 +75,30 @@ public class Ma3Ref {
     meta.put("turkish_esig_policy_oids", dumpPolicyOids());
 
     // 2) Load signing material.
+    String pfxPath = new File(DEFAULT_PFX).exists() ? DEFAULT_PFX : FALLBACK_PFX;
     KeyStore ks = KeyStore.getInstance("PKCS12");
-    try (FileInputStream fis = new FileInputStream(PFX)) {
+    try (FileInputStream fis = new FileInputStream(pfxPath)) {
       ks.load(fis, PFX_PASS.toCharArray());
     }
-    PrivateKey pk = (PrivateKey) ks.getKey(ALIAS, PFX_PASS.toCharArray());
-    X509Certificate jcert = (X509Certificate) ks.getCertificate(ALIAS);
+    String alias = ks.aliases().nextElement();
+    PrivateKey pk = (PrivateKey) ks.getKey(alias, PFX_PASS.toCharArray());
+    X509Certificate jcert = (X509Certificate) ks.getCertificate(alias);
     ECertificate cert = new ECertificate(jcert.getEncoded());
+    java.util.List<ECertificate> chain = new java.util.ArrayList<>();
+    java.util.List<ECertificate> trustedRoots = new java.util.ArrayList<>();
+    java.util.List<ECRL> crls = loadCrls();
+    java.util.List<EBasicOCSPResponse> ocsps = loadBasicOcspResponses();
+    java.security.cert.Certificate[] certChain = ks.getCertificateChain(alias);
+    if (certChain != null) {
+      for (int i = 0; i < certChain.length; i++) {
+        X509Certificate xc = (X509Certificate) certChain[i];
+        ECertificate ec = new ECertificate(xc.getEncoded());
+        if (i > 0) chain.add(ec);
+        if (xc.getSubjectX500Principal().equals(xc.getIssuerX500Principal())) trustedRoots.add(ec);
+      }
+    }
+    meta.put("signing_pfx_path", pfxPath);
+    meta.put("signing_pfx_alias", alias);
     meta.put("signing_cert_subject", jcert.getSubjectX500Principal().getName());
     meta.put("signing_cert_serial_hex", jcert.getSerialNumber().toString(16));
 
@@ -115,7 +135,7 @@ public class Ma3Ref {
 
     // 4) CAdES-BES fixture (attached). ma3api-cmssignature BaseSignedData + PfxSigner.
     try {
-      byte[] cadesBes = signCadesBes("Hello CAdES from MA3 2.3.11.8");
+      byte[] cadesBes = signCadesBes(pfxPath, chain, trustedRoots, crls, ocsps, "Hello CAdES from MA3 2.3.11.8");
       Files.write(Path.of(OUT, "cades-bes.p7s"), cadesBes);
       meta.put("cades_bes_bytes", cadesBes.length);
     } catch (Exception e) {
@@ -124,7 +144,7 @@ public class Ma3Ref {
 
     // 4b) PAdES-BES fixture. MA3 ma3api-pades-pdfbox PAdESContainer + PfxSigner.
     try {
-      byte[] padesBes = signPadesBes();
+      byte[] padesBes = signPadesBes(pfxPath, chain, trustedRoots, crls, ocsps);
       Files.write(Path.of(OUT, "pades-bes.pdf"), padesBes);
       meta.put("pades_bes_bytes", padesBes.length);
     } catch (Exception e) {
@@ -138,21 +158,18 @@ public class Ma3Ref {
   }
 
   // CAdES-BES attached: data ömmits a CMS SignedData, content embedded.
-  static byte[] signCadesBes(String text) throws Exception {
-    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, PFX, PFX_PASS.toCharArray());
+  static byte[] signCadesBes(String pfxPath, List<ECertificate> chain, List<ECertificate> trustedRoots, List<ECRL> crls, List<EBasicOCSPResponse> ocsps, String text) throws Exception {
+    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, pfxPath, PFX_PASS.toCharArray());
     BaseSignedData bs = new BaseSignedData();
     bs.addContent(new SignableByteArray(text.getBytes("UTF-8")), true);
-    // MA3 addSigner default path validation yapar; CertValidationPolicies
-    // config’den gelir + P_VALIDATION_WITHOUT_FINDERS ile zincir araması atlanır.
     java.util.Map<String, Object> params = new java.util.HashMap<>();
     Config cfg = new Config();
     params.put(AllEParameters.P_CERT_VALIDATION_POLICIES, cfg.getCertificateValidationPolicies());
-    params.put(AllEParameters.P_VALIDATION_WITHOUT_FINDERS, Boolean.TRUE);
-    // Self-signed test cert’i kendi trust listesine koy ki path validation 'trusted root'
-    // bulsun (Kamu SM bundle'ında değil, elde bünyede).
-    java.util.List<ECertificate> trusted = new java.util.ArrayList<>();
-    trusted.add(signer.getSignersCertificate());
-    params.put(AllEParameters.P_TRUSTED_CERTIFICATES, trusted);
+    params.put(AllEParameters.P_VALIDATION_WITHOUT_FINDERS, Boolean.FALSE);
+    params.put(AllEParameters.P_TRUSTED_CERTIFICATES, trustedRoots);
+    params.put(AllEParameters.P_ALL_CERTIFICATES, chain);
+    params.put(AllEParameters.P_ALL_CRLS, crls);
+    params.put(AllEParameters.P_ALL_BASIC_OCSP_RESPONSES, ocsps);
     bs.addSigner(ESignatureType.TYPE_BES, signer.getSignersCertificate(), signer,
                  new java.util.ArrayList<>(), params);
     return bs.getEncoded();
@@ -160,7 +177,7 @@ public class Ma3Ref {
 
   // PAdES-BES attached — MA3 ma3api-pades-pdfbox. PfxSigner + PAdESContainer.
   // Test PDF'i pdfbox ile kısaca bellekte üretiyoruz (basit tek sayfalı).
-  static byte[] signPadesBes() throws Exception {
+  static byte[] signPadesBes(String pfxPath, List<ECertificate> chain, List<ECertificate> trustedRoots, List<ECRL> crls, List<EBasicOCSPResponse> ocsps) throws Exception {
     // Basit 1-sayfalı PDF için pdfbox dependency PAdES-jar içinde zaten var.
     org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument();
     doc.addPage(new org.apache.pdfbox.pdmodel.PDPage());
@@ -168,9 +185,19 @@ public class Ma3Ref {
     doc.save(docBos);
     doc.close();
 
-    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, PFX, PFX_PASS.toCharArray());
+    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, pfxPath, PFX_PASS.toCharArray());
 
-    PAdESContext ctx = new PAdESContext();
+    Config cfg = new Config();
+    PAdESContext ctx = new PAdESContext(new File(".").getAbsoluteFile().toURI(), cfg);
+    try {
+      tr.gov.tubitak.uekae.esya.api.signature.certval.ValidationInfoResolver resolver =
+          new tr.gov.tubitak.uekae.esya.api.signature.certval.ValidationInfoResolver();
+      resolver.addCertificates(chain);
+      resolver.addCertificates(trustedRoots);
+      resolver.addCRLs(crls);
+      resolver.addOCSPResponses(EOCSPResponse.getEOCSPResponseArrayList(ocsps));
+      ctx.setValidationInfoResolver(resolver);
+    } catch (Exception ignored) {}
     PAdESContainer container = new PAdESContainer();
     // PAdESContainer context ayarı protected; reflection ile set ediyoruz
     try {
@@ -182,12 +209,41 @@ public class Ma3Ref {
 
     container.read(new java.io.ByteArrayInputStream(docBos.toByteArray()));
     Signature sig = container.createSignature(signer.getSignersCertificate());
+    try {
+      Object underlying = sig.getUnderlyingObject();
+      java.lang.reflect.Field field = underlying.getClass().getDeclaredField("parameters");
+      field.setAccessible(true);
+      java.util.Map<String, Object> params = (java.util.Map<String, Object>) field.get(underlying);
+      if (params != null) {
+        params.put(AllEParameters.P_TRUSTED_CERTIFICATES, trustedRoots);
+        params.put(AllEParameters.P_ALL_CERTIFICATES, chain);
+        params.put(AllEParameters.P_ALL_CRLS, crls);
+        params.put(AllEParameters.P_ALL_BASIC_OCSP_RESPONSES, ocsps);
+        params.put(AllEParameters.P_VALIDATION_WITHOUT_FINDERS, Boolean.FALSE);
+      }
+    } catch (Exception ignored) {}
     sig.sign(signer);
     container.updatePDF();
 
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
     container.write(out);
     return out.toByteArray();
+  }
+
+  static List<ECRL> loadCrls() throws Exception {
+    List<ECRL> out = new ArrayList<>();
+    File rootCrl = new File("../docker-ocsp/ca/www/root.crl");
+    File intCrl = new File("../docker-ocsp/ca/www/int.crl");
+    if (rootCrl.exists()) out.add(new ECRL(rootCrl));
+    if (intCrl.exists()) out.add(new ECRL(intCrl));
+    return out;
+  }
+
+  static List<EBasicOCSPResponse> loadBasicOcspResponses() throws Exception {
+    List<EBasicOCSPResponse> out = new ArrayList<>();
+    File leafOcsp = new File("../docker-ocsp/ca/leaf.ocsp.der");
+    if (leafOcsp.exists()) out.add(new EOCSPResponse(Files.readAllBytes(leafOcsp.toPath())).getBasicOCSPResponse());
+    return out;
   }
 
   // XAdES enveloped: signature lives inside the document it signs.
