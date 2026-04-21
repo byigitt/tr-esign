@@ -74,15 +74,21 @@ export function extractByteRangeBytes(
 	return out;
 }
 
-/** /Contents<HEX> bölgesinin hex içerik sınırları (exclusive <, >). */
+/**
+ * /Contents<HEX> bölgesinin hex içerik sınırları (exclusive <, >).
+ * PDF'te birden çok /Contents olabilir (page content stream `/Contents N 0 R`
+ * + signature hex string); biz hex-string olanların **sonuncusunu** ararız.
+ */
 export function findContentsPlaceholder(pdf: Uint8Array): { start: number; end: number } {
 	const str = toLatin1(pdf);
-	const idx = str.indexOf("/Contents");
-	if (idx < 0) throw new Error("pades: /Contents bulunamadı");
-	const lt = str.indexOf("<", idx);
-	if (lt < 0) throw new Error("pades: /Contents '<' bulunamadı");
+	const re = /\/Contents\s*<([0-9a-fA-F\s]*)>/g;
+	let last: RegExpExecArray | null = null;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(str)) !== null) last = m;
+	if (!last) throw new Error("pades: /Contents<HEX> placeholder bulunamadı");
+	const fullStart = last.index;
+	const lt = str.indexOf("<", fullStart);
 	const gt = str.indexOf(">", lt);
-	if (gt < 0) throw new Error("pades: /Contents '>' bulunamadı");
 	return { start: lt + 1, end: gt };
 }
 
