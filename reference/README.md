@@ -11,24 +11,30 @@ TypeScript implementasyonu bu imzalarla cross-verify edilir.
 - `lib/` — MA3 jar'ları (**git'te yok**; `/tmp/ma3-esign/java/lib/*.jar` kopyalanır)
 - `out/` — üretilen imzalı XML'ler + `meta.json`
 
-## CAdES fixture — bilinen sınırlama
+## CAdES + PAdES fixture — bilinen sınırlama
 
-MA3'ün `BaseSignedData.addSigner()` metodu CAdES-BES için bile **online
-revocation kontrolü** yapıyor. `P_VALIDATION_WITHOUT_FINDERS=true` +
-empty `P_ALL_CRLS` + empty `P_ALL_BASIC_OCSP_RESPONSES` verilse bile iten
-stack: `CertificateStatusInfo.getCertificate()` NPE. Test CA placeholder
-OCSP/CDP URL'lerine ulaşılamıyor.
+MA3'ün `BaseSignedData.addSigner()` (CAdES) ve `PAdESContainer.sign()`
+(PAdES) metotları **online revocation kontrolü** yapıyor.
+`P_VALIDATION_WITHOUT_FINDERS=true` + empty `P_ALL_CRLS` + empty
+`P_ALL_BASIC_OCSP_RESPONSES` verilse bile iten stack:
+`CertificateStatusInfo.getCertificate()` NPE (CAdES) veya
+"Hiç güvenilir kök bulunamadı" (PAdES). Test CA placeholder OCSP/CDP
+URL'lerine ulaşılamıyor.
 
 Çözüm yolları (v0.5+):
 - `docker run openssl ocsp -index ca.db -CA root.pem -rsigner responder.pem
   -port 8080` ile yerel responder
 - Gerçek TR mali mühür PFX (üretim)
-- `Ma3Verify.java`'yı CAdES verify için genişletip **ters yön** cross-verify
+- `Ma3Verify.java`'yı CAdES/PAdES verify için genişletip **ters yön**
+  cross-verify (tr-esign çıktısını MA3 doğrular)
 
-Bugun: `cades-cross-verify.test.ts` `reference/out/cades-bes.p7s` var mı diye
-bakıyor; yoksa skip ediyor. tr-esign CAdES sign ↔ verify kendi round-trip'i
-spec-compliant (RFC 5652 / RFC 5035 / ETSI TS 101 733) olduğu için
-imza üretimi ve doğrulama güvenilir. XAdES interop tam kanıtlı.
+Bugun:
+- `cades-cross-verify.test.ts` `reference/out/cades-bes.p7s` varsa doğrular
+- PAdES için benzer conditional test `pades-cross-verify.test.ts` v0.5.x'e.
+
+tr-esign'ın CAdES/PAdES çıktısı RFC 5652/5035/3161, ETSI TS 101 733 ve
+EN 319 142-1 (§5.3/5.4/5.5) uyumlu; kendi round-trip'i (sign ↔ verify)
+tam. XAdES interop MA3 ile iki yönlü kanıtlı.
 
 ## Kurulum
 

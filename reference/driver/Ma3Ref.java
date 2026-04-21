@@ -40,6 +40,9 @@ import tr.gov.tubitak.uekae.esya.api.cmssignature.signature.ESignatureType;
 import tr.gov.tubitak.uekae.esya.api.common.OID;
 import tr.gov.tubitak.uekae.esya.api.common.util.LicenseUtil;
 import tr.gov.tubitak.uekae.esya.api.crypto.alg.SignatureAlg;
+import tr.gov.tubitak.uekae.esya.api.pades.pdfbox.PAdESContainer;
+import tr.gov.tubitak.uekae.esya.api.pades.pdfbox.PAdESContext;
+import tr.gov.tubitak.uekae.esya.api.signature.Signature;
 import tr.gov.tubitak.uekae.esya.api.signature.config.Config;
 import tr.gov.tubitak.uekae.esya.api.signature.util.PfxSigner;
 import tr.gov.tubitak.uekae.esya.api.xmlsignature.Context;
@@ -119,6 +122,15 @@ public class Ma3Ref {
       meta.put("cades_bes_error", e.getMessage());
     }
 
+    // 4b) PAdES-BES fixture. MA3 ma3api-pades-pdfbox PAdESContainer + PfxSigner.
+    try {
+      byte[] padesBes = signPadesBes();
+      Files.write(Path.of(OUT, "pades-bes.pdf"), padesBes);
+      meta.put("pades_bes_bytes", padesBes.length);
+    } catch (Exception e) {
+      meta.put("pades_bes_error", e.getMessage());
+    }
+
     // 5) Write meta.json.
     Files.writeString(Path.of(OUT, "meta.json"), toJson(meta));
     System.out.println("done — outputs in " + OUT);
@@ -144,6 +156,38 @@ public class Ma3Ref {
     bs.addSigner(ESignatureType.TYPE_BES, signer.getSignersCertificate(), signer,
                  new java.util.ArrayList<>(), params);
     return bs.getEncoded();
+  }
+
+  // PAdES-BES attached — MA3 ma3api-pades-pdfbox. PfxSigner + PAdESContainer.
+  // Test PDF'i pdfbox ile kısaca bellekte üretiyoruz (basit tek sayfalı).
+  static byte[] signPadesBes() throws Exception {
+    // Basit 1-sayfalı PDF için pdfbox dependency PAdES-jar içinde zaten var.
+    org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument();
+    doc.addPage(new org.apache.pdfbox.pdmodel.PDPage());
+    java.io.ByteArrayOutputStream docBos = new java.io.ByteArrayOutputStream();
+    doc.save(docBos);
+    doc.close();
+
+    PfxSigner signer = new PfxSigner(SignatureAlg.RSA_SHA256, PFX, PFX_PASS.toCharArray());
+
+    PAdESContext ctx = new PAdESContext();
+    PAdESContainer container = new PAdESContainer();
+    // PAdESContainer context ayarı protected; reflection ile set ediyoruz
+    try {
+      java.lang.reflect.Field ctxField = tr.gov.tubitak.uekae.esya.api.signature.impl
+          .AbstractSignatureContainer.class.getDeclaredField("context");
+      ctxField.setAccessible(true);
+      ctxField.set(container, ctx);
+    } catch (NoSuchFieldException ignored) { /* field adı farklı olabilir */ }
+
+    container.read(new java.io.ByteArrayInputStream(docBos.toByteArray()));
+    Signature sig = container.createSignature(signer.getSignersCertificate());
+    sig.sign(signer);
+    container.updatePDF();
+
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    container.write(out);
+    return out.toByteArray();
   }
 
   // XAdES enveloped: signature lives inside the document it signs.
