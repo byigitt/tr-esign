@@ -34,7 +34,7 @@ Uzun süreli doğrulama + arşivleme (CAdES) ve zip konteyner (ASiC).
   - EN 319 162-1 §A.1 uyumlu: mimetype FIRST entry + STORED, XAdES
     `signatures.xml` / CAdES `signature.p7s` naming + E için `NNN` indeks.
   - `fflate` (MIT, ~8kb, tree-shakable) tek dep.
-  - Subpath export: `tr-xades/asic`.
+  - Subpath export: `tr-esign/asic`.
 
 - **Test altyapısı**:
   - `reference/gen-test-ca.sh` — openssl ile 3-katmanlı test CA
@@ -88,8 +88,8 @@ senaryolarında kullanılır.
   signatureTimeStamp).
 - **`src/cades-constants.ts`** — RFC 5652 + ETSI TS 101 733 OID'leri +
   HASH_OID mapping (NIST alg OID).
-- **Subpath exports**: `tr-xades/cades-sign`, `tr-xades/cades-verify`,
-  `tr-xades/cades-upgrade`.
+- **Subpath exports**: `tr-esign/cades-sign`, `tr-esign/cades-verify`,
+  `tr-esign/cades-upgrade`.
 
 ### Değişti
 
@@ -177,7 +177,7 @@ kamuya açık TR dokümanlardan.
   `withInheritedNamespaces()` eklendi. MA3 fixture digest'leri byte-byte
   eşleşmesi doğrulandı.
 - **Interop:** MA3 enveloping + enveloped-embedded fixture'ları `verify()`'da
-  valid geçiyor. Ters yön (tr-xades → MA3) enveloping için geçiyor (chain
+  valid geçiyor. Ters yön (tr-esign → MA3) enveloping için geçiyor (chain
   trust hariç). Enveloped UBL için yapısal konvansiyon farkı (MA3 fragment-id
   kullanır) v0.2 kapsamında.
 - **Test:** 32 offline test (lint + typecheck clean). Opt-in live TSA
@@ -186,12 +186,12 @@ kamuya açık TR dokümanlardan.
   iskeleti imzala + doğrula.
 - **Referans:** `reference/driver/Ma3Ref.java` (MA3 ile fixture üret, TR
   policy OID'leri runtime-dump) + `reference/driver/Ma3Verify.java`
-  (tr-xades çıktılarını MA3 ile doğrula).
+  (tr-esign çıktılarını MA3 ile doğrula).
 
 ### Kapsam dışı (v0.1 bilinçli kararlar)
 
 - CAdES, PAdES, ASiC — yalnız XAdES.
-- PKCS#11 / akıllı kart — yumuşak anahtar; ayrı paket `tr-xades-pkcs11`
+- PKCS#11 / akıllı kart — yumuşak anahtar; ayrı paket `tr-esign-pkcs11`
   planlı.
 - Turkcell/Vodafone/Avea Mobil İmza (MSS) — operatör hesabı gerektirir, v1.x.
 - Browser — Node 20+ only.
@@ -219,7 +219,7 @@ kamuya açık TR dokümanlardan.
 ### Meta
 
 - 15 src dosyası, ~1850 satır, barrel yok, flat yapı.
-- 12 subpath export (tr-xades/sign, /verify, /upgrade, /pfx, /crypto, …).
+- 12 subpath export (tr-esign/sign, /verify, /upgrade, /pfx, /crypto, …).
 - `@typescript/native-preview` (tsgo), `oxlint`, `tsx` dev stack.
 - Dependencies: `xmldsigjs`, `pkijs`, `asn1js`, `@peculiar/webcrypto`,
   `@xmldom/xmldom`, `xpath`, `pvutils`.

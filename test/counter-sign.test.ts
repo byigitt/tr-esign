@@ -36,5 +36,5 @@ test("counterSign — parent ds:Signature'a ikinci imzacı ekler",
 		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
 		if (!r.valid) return;
 		assert.ok(r.counterSignatures && r.counterSignatures.length === 1, "1 counter-sig bekleniyor");
-		assert.equal(r.counterSignatures![0].subject, "CN=Test Signer,O=tr-xades test,C=TR");
+		assert.equal(r.counterSignatures![0].subject, "CN=Test Signer,O=tr-esign test,C=TR");
 	});

@@ -1,5 +1,5 @@
 {
-  "name": "tr-xades",
+  "name": "tr-esign",
   "version": "0.4.0",
   "description": "Türkiye profili XAdES + CAdES + ASiC imza kütüphanesi — clean-room, ETSI TS 101 903 / TS 101 733 / EN 319 162 uyumlu",
   "keywords": ["xades", "cades", "asic", "e-imza", "e-fatura", "ubl-tr", "tubitak", "ma3", "kamusm", "tsp", "ocsp", "crl"],

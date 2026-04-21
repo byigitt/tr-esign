@@ -24,7 +24,7 @@ test("parseResponse — rejects malformed bytes", () => {
 test("getTimestamp — FreeTSA round-trip (live)",
 	{ skip: !live && "set TR_XADES_LIVE_TSA=1 to run" },
 	async () => {
-		const data = new TextEncoder().encode(`tr-xades live test ${Date.now()}`);
+		const data = new TextEncoder().encode(`tr-esign live test ${Date.now()}`);
 		const d = await digest("SHA-256", data);
 		const ts = await getTimestamp({
 			digest: d,

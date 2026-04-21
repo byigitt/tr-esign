@@ -26,7 +26,7 @@ test("buildSignedProperties — minimum opts matches MA3 structure",
 		assert.match(xml, /<xades:SigningCertificate>/);
 		assert.match(xml, /<xades:CertDigest>/);
 		assert.match(xml, /<ds:DigestMethod\b[^>]*Algorithm="http:\/\/www\.w3\.org\/2001\/04\/xmlenc#sha256"/);
-		assert.match(xml, /<ds:X509IssuerName[^>]*>CN=Test Signer,O=tr-xades test,C=TR<\/ds:X509IssuerName>/);
+		assert.match(xml, /<ds:X509IssuerName[^>]*>CN=Test Signer,O=tr-esign test,C=TR<\/ds:X509IssuerName>/);
 		// MA3 fixture had serial 5586002494688706913 (= 0x4D8577AC4A5DC161).
 		assert.match(xml, /<ds:X509SerialNumber[^>]*>\d+<\/ds:X509SerialNumber>/);
 		assert.match(xml, /<xades:DataObjectFormat\b[^>]*ObjectReference="#R1">/);

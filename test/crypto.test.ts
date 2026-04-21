@@ -22,7 +22,7 @@ test("sign + verify RSA round-trip with PFX fixture",
 		const bundle = await loadPfx(new Uint8Array(readFileSync(FIXTURE)), "testpass");
 		const priv = await importPrivateKey(bundle.privateKey.pkcs8, "RSA-SHA256");
 		const pub = await importPublicKeyFromCert(bundle.certificate, "RSA-SHA256");
-		const data = new TextEncoder().encode("hello tr-xades");
+		const data = new TextEncoder().encode("hello tr-esign");
 		const sig = await sign("RSA-SHA256", priv, data);
 		assert.equal(sig.byteLength, 256, "RSA-2048 signature should be 256 bytes");
 		assert.ok(await verify("RSA-SHA256", pub, sig, data), "signature must verify");

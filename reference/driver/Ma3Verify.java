@@ -1,4 +1,4 @@
-// MA3 verify driver — tr-xades'in ürettiği XML'leri MA3 ile doğrula (interop testi).
+// MA3 verify driver — tr-esign'in ürettiği XML'leri MA3 ile doğrula (interop testi).
 // Kullanım:  java -cp ".:../lib/*" Ma3Verify <xml-file>
 // Çıkış kodu: 0 = valid, 1 = invalid, 2 = error.
 // Stdout tek satır JSON: { "type": ..., "message": ... }

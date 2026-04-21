@@ -1,10 +1,10 @@
 # reference/ — MA3 test fixture generator
 
-Tek amaç: MA3 Java kütüphanesi ile **referans XAdES imzaları** üretmek. tr-xades
+Tek amaç: MA3 Java kütüphanesi ile **referans XAdES imzaları** üretmek. tr-esign
 TypeScript implementasyonu bu imzalarla cross-verify edilir.
 
 - `driver/Ma3Ref.java` — imzalayıcı + runtime OID dump
-- `driver/Ma3Verify.java` — tr-xades çıktısını MA3 ile doğrula (ters yön)
+- `driver/Ma3Verify.java` — tr-esign çıktısını MA3 ile doğrula (ters yön)
 - `gen-test-ca.sh` — openssl ile 3-katmanlı test CA hiyerarşisi üretir
 - `fixtures/` — test input'ları (`test.p12` self-signed, `sample-invoice.xml`,
   opsiyonel `test-chain.p12` gerçek-zincirli)
@@ -26,7 +26,7 @@ OCSP/CDP URL'lerine ulaşılamıyor.
 - `Ma3Verify.java`'yı CAdES verify için genişletip **ters yön** cross-verify
 
 Bugun: `cades-cross-verify.test.ts` `reference/out/cades-bes.p7s` var mı diye
-bakıyor; yoksa skip ediyor. tr-xades CAdES sign ↔ verify kendi round-trip'i
+bakıyor; yoksa skip ediyor. tr-esign CAdES sign ↔ verify kendi round-trip'i
 spec-compliant (RFC 5652 / RFC 5035 / ETSI TS 101 733) olduğu için
 imza üretimi ve doğrulama güvenilir. XAdES interop tam kanıtlı.
 
@@ -40,7 +40,7 @@ cp /tmp/ma3-esign/java/lisans/lisans.xml reference/fixtures/
 # 2) Test keystore oluştur
 cd reference/fixtures
 keytool -genkeypair -alias testsigner -keyalg RSA -keysize 2048 \
-  -sigalg SHA256withRSA -dname "CN=Test Signer, O=tr-xades test, C=TR" \
+  -sigalg SHA256withRSA -dname "CN=Test Signer, O=tr-esign test, C=TR" \
   -validity 3650 -keystore test.p12 -storetype PKCS12 \
   -storepass testpass -keypass testpass
 ```

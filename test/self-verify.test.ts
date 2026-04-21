@@ -30,7 +30,7 @@ test("round-trip — enveloping BES",
 		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
 		if (!r.valid) return;
 		assert.equal(r.level, "BES");
-		assert.equal(r.signer.subject, "CN=Test Signer,O=tr-xades test,C=TR");
+		assert.equal(r.signer.subject, "CN=Test Signer,O=tr-esign test,C=TR");
 		assert.equal(r.signedAt?.toISOString(), "2026-04-20T10:00:00.000Z");
 	});
 

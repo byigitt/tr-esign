@@ -18,7 +18,7 @@ PASS="testpass"
 
 # ---- Root CA (self-signed) ----
 openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-	-subj "/C=TR/O=tr-xades test/CN=tr-xades Test Root CA" \
+	-subj "/C=TR/O=tr-esign test/CN=tr-esign Test Root CA" \
 	-addext "basicConstraints=critical,CA:TRUE" \
 	-addext "keyUsage=critical,keyCertSign,cRLSign" \
 	-addext "subjectKeyIdentifier=hash" \
@@ -26,7 +26,7 @@ openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
 
 # ---- Intermediate CA (root ile imzalı) ----
 openssl req -newkey rsa:2048 -sha256 -nodes \
-	-subj "/C=TR/O=tr-xades test/CN=tr-xades Test Intermediate CA" \
+	-subj "/C=TR/O=tr-esign test/CN=tr-esign Test Intermediate CA" \
 	-keyout "$TMP/int.key" -out "$TMP/int.csr" 2>/dev/null
 
 cat > "$TMP/int.ext" <<EOF
@@ -42,7 +42,7 @@ openssl x509 -req -in "$TMP/int.csr" -CA "$TMP/root.crt" -CAkey "$TMP/root.key" 
 
 # ---- Leaf signer (intermediate ile imzalı) ----
 openssl req -newkey rsa:2048 -sha256 -nodes \
-	-subj "/C=TR/O=tr-xades test/CN=Test Signer" \
+	-subj "/C=TR/O=tr-esign test/CN=Test Signer" \
 	-keyout "$TMP/leaf.key" -out "$TMP/leaf.csr" 2>/dev/null
 
 cat > "$TMP/leaf.ext" <<EOF

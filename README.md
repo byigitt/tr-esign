@@ -1,4 +1,4 @@
-# tr-xades
+# tr-esign
 
 Türkiye profili **XAdES** elektronik imza kütüphanesi. Node 20+, TypeScript.
 Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağımlılıklar.
@@ -19,7 +19,7 @@ Interop:   MA3 2.3.11.8 fixtures (verify) + MA3 verifier accepts ubl-ma3-compat
 ## Kurulum
 
 ```bash
-pnpm add tr-xades
+pnpm add tr-esign
 ```
 
 ## Hızlı bakış
@@ -28,7 +28,7 @@ pnpm add tr-xades
 
 ```ts
 import { readFileSync } from "node:fs";
-import { sign } from "tr-xades/sign";
+import { sign } from "tr-esign/sign";
 
 const pfx = new Uint8Array(readFileSync("./mali-muhur.pfx"));
 const invoice = readFileSync("./invoice.xml", "utf8");
@@ -45,7 +45,7 @@ const signed = await sign({
 ### Doğrula
 
 ```ts
-import { verify } from "tr-xades/verify";
+import { verify } from "tr-esign/verify";
 
 const r = await verify(signed);
 if (!r.valid) throw new Error(r.reason);
@@ -58,7 +58,7 @@ console.log(r.signedAt);        // Date | undefined
 ### Seviye yükselt
 
 ```ts
-import { upgrade } from "tr-xades/upgrade";
+import { upgrade } from "tr-esign/upgrade";
 
 const t   = await upgrade({ xml: signed, to: "T",  tsa: { url: "http://tzd.kamusm.gov.tr" } });
 const lt  = await upgrade({ xml: t,      to: "LT", chain: [leafDer, intermediateDer, rootDer] });
@@ -153,9 +153,9 @@ XML tabanlı XAdES'in karşılığı; ikili veri (e-reçete, binary doküman, de
 özet imza). Çıktı DER-encoded CMS SignedData (ContentInfo sarıcılı).
 
 ```ts
-import { cadesSign } from "tr-xades/cades-sign";
-import { cadesVerify } from "tr-xades/cades-verify";
-import { cadesUpgrade } from "tr-xades/cades-upgrade";
+import { cadesSign } from "tr-esign/cades-sign";
+import { cadesVerify } from "tr-esign/cades-verify";
+import { cadesUpgrade } from "tr-esign/cades-upgrade";
 
 const pfx = new Uint8Array(readFileSync("./mali-muhur.pfx"));
 const data = readFileSync("./recete.bin");
@@ -199,8 +199,8 @@ XAdES veya CAdES imzası + orijinal veri dosyalarını tek bir zip’e paketler.
 sonra `createAsic()`**.
 
 ```ts
-import { createAsic, readAsic } from "tr-xades/asic";
-import { cadesSign } from "tr-xades/cades-sign";
+import { createAsic, readAsic } from "tr-esign/asic";
+import { cadesSign } from "tr-esign/cades-sign";
 
 const data = readFileSync("./recete.bin");
 const sig = await cadesSign({ data, signer, contentIncluded: false });
@@ -250,14 +250,14 @@ Layout (EN 319 162-1 §A.1):
 ## Kapsam dışı
 
 - **CAdES / PAdES / ASiC** — yalnız XAdES (v0.3+ adayı).
-- **PKCS#11 / akıllı kart** — yumuşak anahtar (PFX/pkcs8). Ayrı paket planlı (`tr-xades-pkcs11`).
+- **PKCS#11 / akıllı kart** — yumuşak anahtar (PFX/pkcs8). Ayrı paket planlı (`tr-esign-pkcs11`).
 - **Mobil İmza** (Turkcell / Vodafone / TT-MSS) — operatör entegrasyonu v1.x.
 - **Browser** — Node-only. Tarayıcıda PKCS#11 + fs olmuyor.
 - **CLI** — library-only.
 
 ## Güvenlik
 
-- `tr-xades` özel anahtarı disk'te saklamaz; `pfx` bayt dizisi olarak geçer, bellekte açılır.
+- `tr-esign` özel anahtarı disk'te saklamaz; `pfx` bayt dizisi olarak geçer, bellekte açılır.
 - `verify()` sonucunda `valid: true` dönmesi **yalnızca** şu demek:
   1. ds:SignedInfo bütünlüğü (cryptographic signature) sağlanmış,
   2. tüm ds:Reference digest'leri eşleşiyor,
@@ -267,14 +267,14 @@ Layout (EN 319 162-1 §A.1):
 
 ## Interop (MA3 2.3.11.8)
 
-| Senaryo | tr-xades verify | MA3 verifier |
+| Senaryo | tr-esign verify | MA3 verifier |
 |---|---|---|
 | MA3 enveloping fixture | ✅ valid | — |
 | MA3 enveloped-embedded fixture | ✅ valid | — |
 | MA3 detached fixture (`sample-invoice.xml` URI) | ✅ valid (w/ `resolver`) | — |
-| tr-xades enveloping BES | — | ✅ temel doğru — cert chain ayrı |
-| tr-xades **`placement: "ubl-ma3-compat"`** | — | ✅ **temel doğru** — cert chain ayrı |
-| tr-xades W3C enveloped (`ubl-extension`) | — | ❌ MA3 farklı konvansiyon (yalnız `ubl-ma3-compat` kullanın) |
+| tr-esign enveloping BES | — | ✅ temel doğru — cert chain ayrı |
+| tr-esign **`placement: "ubl-ma3-compat"`** | — | ✅ **temel doğru** — cert chain ayrı |
+| tr-esign W3C enveloped (`ubl-extension`) | — | ❌ MA3 farklı konvansiyon (yalnız `ubl-ma3-compat` kullanın) |
 
 MA3 verifier self-signed test cert'imizi reddediyor (Kamu SM bundle'ında yok) —
 gerçek mali mühür cert ile kalkacak beklenen sorun. Detaylar için

@@ -1,10 +1,10 @@
-// tr-xades — MA3 reference driver.
+// tr-esign — MA3 reference driver.
 //
 // Uses the MA3 library to:
 //   1) produce reference XAdES-BES / EPES / T signatures on sample inputs
 //   2) dump runtime values obscured by obfuscation (TR policy OIDs, etc.)
 //
-// This code is NOT part of the tr-xades TypeScript library.
+// This code is NOT part of the tr-esign TypeScript library.
 // It is a throwaway tool used to generate test fixtures + learn.
 // Run with: ./run.sh
 //

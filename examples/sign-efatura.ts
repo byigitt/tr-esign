@@ -1,4 +1,4 @@
-// tr-xades e-Fatura örneği: UBL 2.1 + TR 1.2 temel fatura imzalanır + doğrulanır.
+// tr-esign e-Fatura örneği: UBL 2.1 + TR 1.2 temel fatura imzalanır + doğrulanır.
 //
 // Çalıştır:  pnpm run example:efatura
 //
@@ -18,7 +18,7 @@ const pfx = new Uint8Array(readFileSync(join(root, "reference/fixtures/test.p12"
 const invoiceId = `TR${new Date().getFullYear()}${Math.floor(Math.random() * 1e9).toString().padStart(9, "0")}`;
 
 // UBL-TR 1.2 TEMELFATURA iskeleti. ext:ExtensionContent boş bırakılır;
-// tr-xades sign() ds:Signature'ı oraya yerleştirir.
+// tr-esign sign() ds:Signature'ı oraya yerleştirir.
 const invoice = `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
          xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
