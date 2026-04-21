@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAsic, readAsic } from "../src/asic.ts";
+import { buildAsicManifest, createAsic, createAsicAsync, readAsic } from "../src/asic.ts";
+import { digest } from "../src/crypto.ts";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -84,6 +85,80 @@ test("createAsic / readAsic — ASiC-E multi-file + manifest round-trip", () => 
 	assert.equal(back.manifests.length, 1);
 	assert.equal(back.manifests[0]!.name, "META-INF/ASiCManifest001.xml");
 	assert.equal(dec(back.manifests[0]!.bytes), "<manifest1/>");
+});
+
+test("buildAsicManifest — SHA-256 digest + MIME type inference", async () => {
+	const dataFiles = [
+		{ name: "fatura.pdf", bytes: new Uint8Array([1, 2, 3, 4]) },
+		{ name: "data.xml", bytes: new TextEncoder().encode("<x/>") },
+		{ name: "note.txt", bytes: new TextEncoder().encode("hello") },
+	];
+	const xml = await buildAsicManifest({
+		sigReference: { uri: "META-INF/signatures001.xml", mimeType: "application/x-xades+xml" },
+		dataFiles,
+	});
+	const body = new TextDecoder().decode(xml);
+	assert.match(body, /xmlns:asic="http:\/\/uri\.etsi\.org\/02918\/v1\.2\.1#"/);
+	assert.match(body, /xmlns:ds="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#"/);
+	assert.match(body, /<asic:SigReference URI="META-INF\/signatures001\.xml" MimeType="application\/x-xades\+xml"\/>/);
+	// 3 DataObjectReference + MIME inference
+	assert.match(body, /URI="fatura\.pdf" MimeType="application\/pdf"/);
+	assert.match(body, /URI="data\.xml" MimeType="application\/xml"/);
+	assert.match(body, /URI="note\.txt" MimeType="text\/plain"/);
+	assert.match(body, /Algorithm="http:\/\/www\.w3\.org\/2001\/04\/xmlenc#sha256"/);
+
+	// Digest değerleri gerçek SHA-256’ya uyuyor mu?
+	for (const f of dataFiles) {
+		const h = await digest("SHA-256", f.bytes);
+		const b64 = Buffer.from(h).toString("base64");
+		// base64 içinde '+' ve '/' olabilir — regex escape lazım
+		const escaped = b64.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		assert.match(body, new RegExp(`<ds:DigestValue>${escaped}</ds:DigestValue>`));
+	}
+});
+
+test("createAsicAsync — ASiC-E XAdES manifest:'auto' round-trip", async () => {
+	const dataFiles = [
+		{ name: "a.pdf", bytes: new Uint8Array([0xff, 0xaa, 0xbb]) },
+		{ name: "b.json", bytes: new TextEncoder().encode(`{"k":1}`) },
+	];
+	const zip = await createAsicAsync({
+		type: "asic-e",
+		dataFiles,
+		signatures: [{ bytes: new TextEncoder().encode("<sig/>"), format: "xades", manifest: "auto" }],
+	});
+	const back = readAsic(zip);
+	assert.equal(back.type, "asic-e");
+	assert.equal(back.dataFiles.length, 2);
+	assert.equal(back.signatures.length, 1);
+	assert.equal(back.manifests.length, 1);
+	assert.equal(back.manifests[0]!.name, "META-INF/ASiCManifest001.xml");
+
+	const manifestXml = new TextDecoder().decode(back.manifests[0]!.bytes);
+	assert.match(manifestXml, /URI="a\.pdf"/);
+	assert.match(manifestXml, /URI="b\.json"/);
+	assert.match(manifestXml, /URI="META-INF\/signatures001\.xml"/);
+	// Her dataFile'ın digest'i gerçek SHA-256'yla uyuyor
+	for (const f of dataFiles) {
+		const h = await digest("SHA-256", f.bytes);
+		const b64 = Buffer.from(h).toString("base64");
+		assert.ok(manifestXml.includes(`<ds:DigestValue>${b64}</ds:DigestValue>`),
+			`${f.name} SHA-256 digest eksik`);
+	}
+});
+
+test("createAsic — sync modda manifest:'auto' yerine explicit bytes kabul ediyor", () => {
+	const zip = createAsic({
+		type: "asic-e",
+		dataFiles: [{ name: "f.txt", bytes: new TextEncoder().encode("x") }],
+		signatures: [{
+			bytes: new TextEncoder().encode("<sig/>"),
+			format: "xades",
+			manifest: new TextEncoder().encode("<asic:ASiCManifest/>"),
+		}],
+	});
+	const back = readAsic(zip);
+	assert.equal(back.manifests.length, 1);
 });
 
 test("readAsic — bilinmeyen mimetype red", () => {
