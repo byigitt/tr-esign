@@ -48,25 +48,35 @@ export async function validateChain(o: ValidateOptions): Promise<ChainResult> {
 	}
 }
 
-// Kamu SM SertifikaDeposu: ~200 kök+ara sertifika, XML wrapper, base64 içerik.
-// XML'de her <Sertifika> → <X509Data>base64 DER</X509Data> taşır.
-// Runtime'da fetch + parse; kütüphane embed etmez.
+// Kamu SM SertifikaDeposu: runtime'da fetch + parse (güncel liste).
+// Schema: <koksertifika><mValue>base64</mValue><mSubjectName/>...</koksertifika>.
 export async function loadKamuSmRoots(
 	url = "http://depo.kamusm.gov.tr/depo/SertifikaDeposu.xml",
 ): Promise<Uint8Array[]> {
 	const r = await fetch(url);
 	if (!r.ok) throw new Error(`Kamu SM deposu HTTP ${r.status}`);
 	const xml = await r.text();
-	// Basit regex — şemaya sıkı sıkıya bağlı değil; yalnızca X509Certificate/
-	// base64 içerikleri yakalar (<Sertifika>…<Deger>base64</Deger>).
 	const out: Uint8Array[] = [];
-	const re = /<(?:X509Certificate|Deger|CertificateValue)>([^<]+?)<\/(?:X509Certificate|Deger|CertificateValue)>/g;
-	for (const m of xml.matchAll(re)) {
-		const b64 = m[1]!.replace(/\s+/g, "");
+	const blockRe = /<koksertifika>([\s\S]*?)<\/koksertifika>/g;
+	const valRe = /<mValue>\s*([A-Za-z0-9+/=\s]+?)\s*<\/mValue>/;
+	for (const m of xml.matchAll(blockRe)) {
+		const v = valRe.exec(m[1]!);
+		if (!v) continue;
+		const b64 = v[1]!.replace(/\s+/g, "");
 		try { out.push(new Uint8Array(Buffer.from(b64, "base64"))); }
 		catch { /* skip bad entry */ }
 	}
 	return out;
+}
+
+/**
+ * Offline Kamu SM root snapshot — `reference/fetch-kamusm-roots.sh` çıktısı
+ * `src/kamusm-roots-snapshot.ts`’den DER yükler. Bağımsız fetch gerekmez.
+ * Güncelleme için script elle çalıştırılır; kok set nadir değişir.
+ */
+export async function loadKamuSmRootsOffline(): Promise<Uint8Array[]> {
+	const mod = await import("./kamusm-roots-snapshot.ts");
+	return mod.kamuSmRootsDer();
 }
 
 function parseCert(der: Uint8Array): pkijs.Certificate {
