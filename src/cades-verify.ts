@@ -3,8 +3,8 @@
 
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
-import { CADES_ATTR, CONTENT_TYPE } from "./cades-constants.ts";
-import { certToSignerInfo, type Level, type VerifyResult } from "./verify.ts";
+import { CADES_ATTR, CONTENT_TYPE, SIGNED_ATTR } from "./cades-constants.ts";
+import { certToSignerInfo, type Level, type SignerInfo as SignerInfoReport, type VerifyResult } from "./verify.ts";
 
 export type CadesVerifyOptions = {
 	detachedContent?: Uint8Array; // detached imzada dış veri
@@ -44,11 +44,13 @@ export async function cadesVerify(bytes: Uint8Array, opts: CadesVerifyOptions = 
 		const signer = findSignerCert(sd, si);
 		if (!signer) return invalid("CAdES: SignerInfo.sid ile eşleşen sertifika SignedData.certificates'ta yok");
 
+		const counterSignatures = extractCounterSigners(unsignedAttrs, sd);
 		return {
 			valid: true,
 			level: detectLevel(signedAttrs, unsignedAttrs),
 			signer: certToSignerInfo(signer),
 			...(extractSigningTime(signedAttrs) ? { signedAt: extractSigningTime(signedAttrs) } : {}),
+			...(counterSignatures.length > 0 && { counterSignatures }),
 		};
 	} catch (e) {
 		return invalid(e instanceof Error ? e.message : "unknown error", e);
@@ -72,6 +74,29 @@ function extractSigningTime(signed: pkijs.Attribute[]): Date | undefined {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const d = (v as any).toDate?.() ?? (v as any).valueBlock?.toDate?.() ?? v.valueBlock.value;
 	return d instanceof Date ? d : new Date(d);
+}
+
+/**
+ * countersignature unsigned attribute(lar)ı çözüp counter-signer cert'lerini
+ * rapor eder. RFC 5652 §11.4 — attribute value = SignerInfo. Counter-signer
+ * sid'ini SignedData.certificates'ta arar.
+ */
+function extractCounterSigners(
+	unsignedAttrs: pkijs.Attribute[],
+	sd: pkijs.SignedData,
+): SignerInfoReport[] {
+	const out: SignerInfoReport[] = [];
+	for (const attr of unsignedAttrs) {
+		if (attr.type !== SIGNED_ATTR.countersignature) continue;
+		for (const v of attr.values) {
+			try {
+				const siCs = new pkijs.SignerInfo({ schema: v });
+				const cert = findSignerCert(sd, siCs);
+				if (cert) out.push(certToSignerInfo(cert));
+			} catch { /* ignore malformed counter-sig entry */ }
+		}
+	}
+	return out;
 }
 
 function findSignerCert(sd: pkijs.SignedData, si: pkijs.SignerInfo): pkijs.Certificate | undefined {
