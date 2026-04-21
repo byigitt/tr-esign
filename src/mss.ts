@@ -56,6 +56,55 @@ export type MssSignResult = {
 	statusMessage?: string;
 };
 
+export type MssStatusOptions = {
+	serviceUrl: string;
+	apId: string;
+	apPwd: string;
+	/** mssSign'dan dönen MSSP_TransID */
+	msspTransId: string;
+	apTransId?: string;
+	fetch?: typeof fetch;
+};
+
+export type MssStatusResult = {
+	/** ETSI §5.2.2 StatusCode/@Value (örn. "500" = signature in progress, "502" = OK) */
+	statusCode: string;
+	statusMessage: string;
+	/** İmza hazırsa PKCS#7/CMS DER. "in progress" durumunda undefined. */
+	signature?: Uint8Array;
+};
+
+/**
+ * ETSI §5.2 MSS_StatusReq — async mod'daki bir imzanın durumunu sorgular.
+ * Polling manuel yapılır; mssPoll() helper'ı bekleyerek imza gelene kadar tekrarlar.
+ */
+export async function mssStatus(opts: MssStatusOptions): Promise<MssStatusResult> {
+	const apTransId = opts.apTransId ?? uuid();
+	const instant = new Date().toISOString();
+	const envelope = buildStatusReq({
+		apId: opts.apId, apPwd: opts.apPwd, apTransId, instant,
+		msspTransId: opts.msspTransId,
+	});
+	const xml = await postSoap(opts.serviceUrl, envelope, "MSS_StatusQuery", opts.fetch);
+	return parseStatusResp(xml);
+}
+
+/** mssPoll — mssStatus'u ihtiyaç halinde tekrarlar; imza dönene dek veya timeout. */
+export async function mssPoll(
+	opts: MssStatusOptions & { intervalMs?: number; timeoutMs?: number },
+): Promise<MssStatusResult> {
+	const interval = opts.intervalMs ?? 3000;
+	const timeout = opts.timeoutMs ?? 120_000;
+	const deadline = Date.now() + timeout;
+	// eslint-disable-next-line no-constant-condition
+	while (true) {
+		const r = await mssStatus(opts);
+		if (r.signature) return r;
+		if (Date.now() >= deadline) throw new Error(`mssPoll: timeout (${timeout}ms) status=${r.statusCode}`);
+		await new Promise((res) => setTimeout(res, interval));
+	}
+}
+
 export async function mssSign(opts: MssSignOptions): Promise<MssSignResult> {
 	const apTransId = opts.apTransId ?? uuid();
 	const instant = new Date().toISOString();
@@ -75,6 +124,38 @@ export async function mssSign(opts: MssSignOptions): Promise<MssSignResult> {
 	});
 	const respXml = await postSoap(opts.serviceUrl, envelope, "MSS_Signature", opts.fetch);
 	return parseSignatureResp(respXml);
+}
+
+function buildStatusReq(a: {
+	apId: string; apPwd: string; apTransId: string; instant: string; msspTransId: string;
+}): string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="${NS.soap}" xmlns:mss="${NS.mss}">
+  <soap:Body>
+    <mss:MSS_StatusQuery>
+      <mss:MSS_StatusReq MajorVersion="1" MinorVersion="1">
+        <mss:AP_Info AP_ID="${xmlEscape(a.apId)}" AP_TransID="${xmlEscape(a.apTransId)}" AP_PWD="${xmlEscape(a.apPwd)}" Instant="${a.instant}"/>
+        <mss:MSSP_Info><mss:MSSP_ID><mss:URI>${NS.mss}</mss:URI></mss:MSSP_ID></mss:MSSP_Info>
+        <mss:MSSP_TransID>${xmlEscape(a.msspTransId)}</mss:MSSP_TransID>
+      </mss:MSS_StatusReq>
+    </mss:MSS_StatusQuery>
+  </soap:Body>
+</soap:Envelope>`;
+}
+
+function parseStatusResp(xml: string): MssStatusResult {
+	const doc = new DOMParser().parseFromString(xml, "text/xml");
+	const fault = doc.getElementsByTagNameNS(NS.soap, "Fault").item(0);
+	if (fault) throw new Error(`MSS SOAP Fault: ${textContent(fault)}`);
+
+	const statusCode = firstAttr(doc, NS.mss, "StatusCode", "Value") ?? "";
+	const statusMessage = firstText(doc, NS.mss, "StatusMessage") ?? "";
+	const sigB64 = firstText(doc, NS.mss, "Base64Signature") ?? firstText(doc, NS.mss, "MSS_Signature");
+	return {
+		statusCode,
+		statusMessage,
+		...(sigB64 ? { signature: new Uint8Array(Buffer.from(sigB64.trim(), "base64")) } : {}),
+	};
 }
 
 // ---- SOAP envelope builder ----
