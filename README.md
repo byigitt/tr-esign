@@ -4,12 +4,16 @@ Türkiye için **XAdES + CAdES + PAdES + ASiC** elektronik imza kütüphanesi.
 Tek paket, tek tip `VerifyResult`, paylasılan CMS çekirdeği. Node 20+, TypeScript.
 Clean-room — ETSI spec + kamuya açık TR dokümanları + MIT lisanslı bağımlılıklar.
 
-| Format | Ne zaman? | API |
+| Alan | Ne zaman? | API |
 |---|---|---|
-| **XAdES** | XML/UBL-TR (e-Fatura, e-İrşaliye, e-Bilet)                    | `tr-esign/sign` + `verify` + `upgrade` |
-| **CAdES** | İkili veri, e-reçete, detached özet imza (CMS/PKCS#7 ASN.1) | `tr-esign/cades-sign` + `cades-verify` + `cades-upgrade` |
-| **PAdES** | PDF doküman imzası (fatura PDF arşivi, resmi yazı)       | `tr-esign/pades-sign` + `pades-verify` + `pades-upgrade` |
-| **ASiC** | İmza + veri tek zip (ASiC-S/-E)                           | `tr-esign/asic` |
+| **XAdES** | XML/UBL-TR (e-Fatura, e-İrşaliye, e-Bilet)                    | `tr-esign/sign` + `verify` + `upgrade` + `counter-sign` |
+| **CAdES** | İkili veri, e-reçete, detached özet imza (CMS/PKCS#7 ASN.1) | `tr-esign/cades-sign` + `cades-verify` + `cades-upgrade` + `cades-counter-sign` |
+| **PAdES** | PDF doküman imzası (fatura PDF arşivi, resmi yazı)       | `tr-esign/pades-sign` + `pades-verify` + `pades-upgrade` + `pades-visible` |
+| **ASiC** | İmza + veri tek zip (ASiC-S/-E, manifest auto-gen)        | `tr-esign/asic` |
+| **Akart ı PKCS#11** | AKIS, mali mühür HSM, softhsm | `tr-esign/pkcs11` + `SignerInput.pkcs11` |
+| **Mobil İmza (MSS)** | Turkcell, Vodafone, Türk Telekom (ETSI TS 102 204) | `tr-esign/mss` — `mssSign` / `mssPoll` |
+| **Trust bootstrap** | Kamu SM root anchor offline snapshot | `tr-esign/chain` — `loadKamuSmRootsOffline()` |
+| **CLI** | `tr-esign <format> <action>` — sign/verify/upgrade | `bin/tr-esign` |
 
 ```
 XAdES:     BES / EPES / T / LT / LTA
@@ -324,6 +328,119 @@ const r = await padesVerify(lta);
 - /Type /Sig + AcroForm.Fields + Widget annotation
 - LT: /DSS dict (PDF Catalog'da) cert/CRL/OCSP streams
 - LTA: ayrı /Sig dict /SubFilter /ETSI.RFC3161, /Contents = TSToken
+
+### PKCS#11 — akıllı kart / HSM
+
+TR'de e-imza çoğunlukla NES kartı (AKIS) veya mali mühür HSM ile yapılır.
+PKCS#11 modulesession'ı tüm `SignerInput` destekleyen API'lere (XAdES/CAdES/
+PAdES sign/upgrade) aynı şekilde geçilir.
+
+```ts
+import { openPkcs11 } from "tr-esign/pkcs11";
+import { sign } from "tr-esign/sign";
+
+const handle = openPkcs11({
+  modulePath: "/Library/OpenSC/lib/opensc-pkcs11.so", // AKIS / Kamu SM sürücüsü
+  pin: process.env.CARD_PIN!,
+});
+try {
+  const signed = await sign({
+    input: { xml, placement: "ubl-extension" },
+    signer: { pkcs11: handle, label: "Mali Mühür" },
+    policy: "P3",
+  });
+} finally {
+  handle.close();
+}
+```
+
+Test:
+- `brew install softhsm opensc` + `softhsm2-util --init-token`
+- `TR_ESIGN_PKCS11_MODULE=/opt/homebrew/lib/softhsm/libsofthsm2.so pnpm test`
+
+### Mobil İmza (MSS, ETSI TS 102 204)
+
+Operator SOAP uzak imza servisleri.
+
+```ts
+import { mssSign, mssPoll } from "tr-esign/mss";
+
+const r = await mssSign({
+  serviceUrl: "https://mssp.turkcell.com.tr/MSS_Signature",
+  apId: process.env.MSS_AP_ID!,
+  apPwd: process.env.MSS_AP_PWD!,
+  msisdn: "905551234567",
+  dataToBeSigned: new TextEncoder().encode("Fatura onayı mesajı"),
+  dataToBeDisplayed: "Faturanızı onaylıyor musunuz?",
+  messagingMode: "asynchClientServer",
+});
+// Async mod: poll
+const final = await mssPoll({ ...r, intervalMs: 3000, timeoutMs: 120_000 });
+// final.signature → CMS/PKCS#7 DER (cadesVerify ile doğrulanabilir)
+```
+
+### PAdES görünen imza
+
+PDF widget annotation + /AP /N Form XObject ile görsel imza çerçevesi.
+EN 319 142-1 ByteRange ı bozmadan eklenir.
+
+```ts
+import { padesSign } from "tr-esign/pades-sign";
+
+const signed = await padesSign({
+  pdf, signer,
+  signerName: "Barış Y.",
+  visibleSignature: {
+    page: 1,
+    rect: [50, 50, 250, 110],        // [x1,y1,x2,y2] sayfa koordinatları
+    text: "Barış Y.\n21 Nisan 2026\nOnaylandı",
+    fontSize: 10,
+  },
+});
+```
+
+### CAdES counter-signature
+
+Birinci imzacının imzasını ikinci imzacı imzalar (RFC 5652 §11.4).
+Outer imza ve içerik dokunulmaz.
+
+```ts
+import { cadesSign } from "tr-esign/cades-sign";
+import { cadesCounterSign } from "tr-esign/cades-counter-sign";
+import { cadesVerify } from "tr-esign/cades-verify";
+
+const bes = await cadesSign({ data, signer: signerA });
+const cs = await cadesCounterSign({ cms: bes, signer: signerB });
+const r = await cadesVerify(cs);
+// r.counterSignatures[0].subject → ikinci imzacının sertifikası
+```
+
+### ASiC-E XAdES manifest auto
+
+Çok dosyalı pakette DataObjectReference + SHA-256 digest'leri otomatik.
+
+```ts
+import { createAsicAsync } from "tr-esign/asic";
+
+const asic = await createAsicAsync({
+  type: "asic-e",
+  dataFiles: [
+    { name: "fatura.xml", bytes },
+    { name: "ek.pdf", bytes: pdfBytes },
+  ],
+  signatures: [{ bytes: xadesSig, format: "xades", manifest: "auto" }],
+});
+```
+
+### CLI
+
+```bash
+npx tr-esign xades sign    --pfx m.p12 --password X --in fatura.xml --out imzali.xml --policy P3
+npx tr-esign pades verify  --in imzali.pdf
+npx tr-esign cades upgrade --in bes.p7s --to T --tsa http://tzd.kamusm.gov.tr --out t.p7s
+```
+
+`--password` yerine `TR_ESIGN_PFX_PASS` environment variable kullanılabilir.
 
 ### Yardımcı modüller
 
