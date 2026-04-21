@@ -1,9 +1,13 @@
 {
   "name": "tr-esign",
-  "version": "0.4.0",
-  "description": "Türkiye profili XAdES + CAdES + ASiC imza kütüphanesi — clean-room, ETSI TS 101 903 / TS 101 733 / EN 319 162 uyumlu",
+  "version": "0.5.0",
+  "description": "Türkiye profili XAdES + CAdES + ASiC + PAdES imza kütüphanesi — clean-room; ETSI EN 319 132 / TS 101 733 / EN 319 162 / EN 319 142 uyumlu",
   "keywords": [
     "xades",
+    "cades",
+    "asic",
+    "pades",
+    "pdf-signature",
     "esignature",
     "eimza",
     "tubitak",
@@ -45,6 +49,18 @@
     "./asic": {
       "types": "./dist/asic.d.ts",
       "import": "./dist/asic.js"
+    },
+    "./pades-sign": {
+      "types": "./dist/pades-sign.d.ts",
+      "import": "./dist/pades-sign.js"
+    },
+    "./pades-verify": {
+      "types": "./dist/pades-verify.d.ts",
+      "import": "./dist/pades-verify.js"
+    },
+    "./pades-upgrade": {
+      "types": "./dist/pades-upgrade.d.ts",
+      "import": "./dist/pades-upgrade.js"
     },
     "./pfx": {
       "types": "./dist/pfx.d.ts",
