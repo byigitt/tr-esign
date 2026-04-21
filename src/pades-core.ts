@@ -9,6 +9,9 @@
 import { plainAddPlaceholder } from "@signpdf/placeholder-plain";
 import { SUBFILTER_ETSI_CADES_DETACHED } from "@signpdf/utils";
 
+/** DocTimeStamp SubFilter — EN 319 142-1 §5.5. */
+export const SUBFILTER_ETSI_RFC3161 = "ETSI.RFC3161";
+
 export type PlaceholderOptions = {
 	reason?: string;
 	location?: string;
@@ -16,6 +19,9 @@ export type PlaceholderOptions = {
 	signerName?: string;
 	/** /Contents placeholder boyutu (bayt). 16384 çoğu CMS'e yeter. */
 	signatureSize?: number;
+	/** PDF /SubFilter alanı. Default PAdES-B-B için ETSI.CAdES.detached;
+	 *  PAdES-LTA DocTimeStamp için ETSI.RFC3161. */
+	subFilter?: string;
 };
 
 export function addSignaturePlaceholder(pdfIn: Uint8Array, opts: PlaceholderOptions = {}): Uint8Array {
@@ -26,7 +32,7 @@ export function addSignaturePlaceholder(pdfIn: Uint8Array, opts: PlaceholderOpti
 		contactInfo: opts.contactInfo ?? "",
 		name: opts.signerName ?? "",
 		signatureLength: opts.signatureSize ?? 16384,
-		subFilter: SUBFILTER_ETSI_CADES_DETACHED,
+		subFilter: opts.subFilter ?? SUBFILTER_ETSI_CADES_DETACHED,
 	});
 	// @signpdf /ByteRange için placeholder yazıyor ([0 /********** ...]);
 	// asıl değerleri /Contents pozisyonundan hesaplayıp aynı genişlikle yaz.
@@ -35,8 +41,15 @@ export function addSignaturePlaceholder(pdfIn: Uint8Array, opts: PlaceholderOpti
 
 function writeByteRange(pdf: Uint8Array): Uint8Array {
 	const str = toLatin1(pdf);
-	const brMatch = /\/ByteRange\s*\[[^\]]*\]/.exec(str);
-	if (!brMatch) throw new Error("pades: /ByteRange placeholder bulunamadı");
+	// Birden çok imza varsa son (yeni eklenmiş) placeholder'ı bul (içinde
+	// '/**********' deseni var). Diğerleri zaten actual değerlerle yazılmış.
+	const re = /\/ByteRange\s*\[[^\]]*\]/g;
+	let brMatch: RegExpExecArray | null = null;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(str)) !== null) {
+		if (m[0].includes("*")) { brMatch = m; break; }
+	}
+	if (!brMatch) throw new Error("pades: /ByteRange placeholder (/**********) bulunamadı");
 	const brStart = brMatch.index;
 	const brLen = brMatch[0].length;
 
@@ -57,9 +70,14 @@ function writeByteRange(pdf: Uint8Array): Uint8Array {
 /** /ByteRange [a b c d] değerlerini okur. */
 export function readByteRange(pdf: Uint8Array): [number, number, number, number] {
 	const str = toLatin1(pdf);
-	const m = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/.exec(str);
-	if (!m) throw new Error("pades: /ByteRange bulunamadı");
-	return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+	// Birden fazla imza varsa son (en yeni) /ByteRange'ı al — findContentsPlaceholder
+	// ile tutarlı olsun diye; doğrulama yeni imzayı hedefler.
+	const re = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/g;
+	let last: RegExpExecArray | null = null;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(str)) !== null) last = m;
+	if (!last) throw new Error("pades: /ByteRange bulunamadı");
+	return [Number(last[1]), Number(last[2]), Number(last[3]), Number(last[4])];
 }
 
 /** ByteRange = [a, b, c, d] → bytes [a..a+b) ++ [c..c+d). CMS messageDigest input'u. */
