@@ -30,7 +30,7 @@ export async function padesVerify(pdf: Uint8Array): Promise<VerifyResult> {
 	// PAdES seviye override — DSS (§5.4) ve DocTimeStamp (§5.5) PDF-level yapılar.
 	const pdfStr = toLatin1(pdf);
 	if (/\/SubFilter\s*\/ETSI\.RFC3161/.test(pdfStr)) r.level = "LTA";
-	else if (/\/DSS\s*<</.test(pdfStr)) r.level = "LT";
+	else if (/\/Type\s*\/DSS\b/.test(pdfStr)) r.level = "LT";
 	return r;
 }
 
