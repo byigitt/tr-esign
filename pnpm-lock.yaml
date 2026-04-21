@@ -29,6 +29,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      graphene-pk11:
+        specifier: ^2.3.6
+        version: 2.3.6
       pkijs:
         specifier: ^3.4.0
         version: 3.4.0
@@ -569,6 +572,10 @@ packages:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
 
+  graphene-pk11@2.3.6:
+    resolution: {integrity: sha512-ol9Pf7XDv5UTjh1DPqtmQVZQqUheiXBzQVXQWRCLWq78+brKQB0Kum/s0NGEcsd/5NQQG8MFA2U/KNujEoC1fQ==}
+    engines: {node: '>=18.0.0'}
+
   has-bigints@1.1.0:
     resolution: {integrity: sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg==}
     engines: {node: '>= 0.4'}
@@ -731,6 +738,10 @@ packages:
 
   pdfkit@0.10.0:
     resolution: {integrity: sha512-mRJ6iuDzpIQ4ftKp5GvijLXNVRK86xjnyIPBraYSPrUPubNqWM5/oYmc7FZKUWz3wusRTj3PLR9HJ1X5ooqfsg==}
+
+  pkcs11js@2.1.6:
+    resolution: {integrity: sha512-+t5jxzB749q8GaEd1yNx3l98xYuaVK6WW/Vjg1Mk1Iy5bMu/A5W4O/9wZGrpOknWF6lFQSb12FXX+eSNxdriwA==}
+    engines: {node: '>=18.0.0'}
 
   pkijs@3.4.0:
     resolution: {integrity: sha512-emEcLuomt2j03vxD54giVB4SxTjnsqkU692xZOZXHDVoYyypEm+b3jpiTcc+Cf+myooc+/Ly0z01jqeNHVgJGw==}
@@ -1445,6 +1456,11 @@ snapshots:
 
   gopd@1.2.0: {}
 
+  graphene-pk11@2.3.6:
+    dependencies:
+      pkcs11js: 2.1.6
+      tslib: 2.8.1
+
   has-bigints@1.1.0: {}
 
   has-property-descriptors@1.0.2:
@@ -1626,6 +1642,8 @@ snapshots:
       fontkit: 1.9.0
       linebreak: 0.3.0
       png-js: 2.0.0
+
+  pkcs11js@2.1.6: {}
 
   pkijs@3.4.0:
     dependencies:

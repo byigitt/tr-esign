@@ -123,6 +123,7 @@
     "@xmldom/xmldom": "^0.9.10",
     "asn1js": "^3.0.9",
     "fflate": "^0.8.2",
+    "graphene-pk11": "^2.3.6",
     "pkijs": "^3.4.0",
     "pvutils": "^1.1.5",
     "xadesjs": "^2.6.7",
@@ -135,5 +136,11 @@
     "oxlint": "^0.13.0",
     "pdf-lib": "^1.17.1",
     "tsx": "^4.19.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "pkcs11js",
+      "esbuild"
+    ]
   }
 }
