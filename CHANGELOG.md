@@ -2,6 +2,109 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). SemVer.
 
+## [0.7.0] — Production harden + MA3 CAdES/PAdES cross-verify unlock
+
+v0.7 büyük özellik eklemesinden çok **gerçek dünya sağlamlığı** üzerine:
+Modern PDF destek, MA3 CAdES/PAdES interop, CAdES-LTA ATSv3, PKCS#11 optional
+packaging, MSS `ProfileQuery` + `Registration`, TSP chain validation,
+Kamu SM snapshot auto-refresh ve README/CHANGELOG/release.
+
+### Eklendi
+
+- **PDF xref-stream desteki** — `src/pades-xref.ts`. `parseTrailer(pdf)` hem
+  classic `trailer << ... >>` hem xref-stream (`/Type /XRef`) yolunu ayrıştırır;
+  `writeXrefSection()` incremental append için classic section üretir.
+  `src/pades-core.ts` artık xref-stream PDF geldiğinde `ObjStm` saıkıştırılmış
+  objeleri inflate edip standalone indirect object olarak açıyor; üzerine classic
+  xref append edip `@signpdf/placeholder-plain`'e veriyor. `pades-dss.ts` ve
+  `pades-visible.ts` trailer parse için aynı helper'ı kullanıyor ve `/Info`,
+  `/Prev` alanlarını koruyor. Regression: `test/pades-xref.test.ts` `pdf-lib`
+  default PDF üzerinde sign → verify → LT → LTA (live) akışını kapsıyor.
+
+- **CAdES-LTA ATSv3** — ETSI EN 319 122-1 §5.5.3. `src/cades-constants.ts`
+  içine `atsHashIndex = "0.4.0.1733.2.5"` eklendi. Yeni
+  `buildAtsHashIndexAttr()` her cert/crl/unsignedAttr DER'ini tek tek hash'leyip
+  `ATSHashIndex` unsigned attr üretiyor. `cadesUpgrade({ to: "LTA" })` artık
+  default olarak v3; imprint input'u `v2-archive-input || DER(ATSHashIndex)`.
+  `{ variant: "v2" }` ile eski akış korunuyor. Live FreeTSA round-trip test
+  altında (`test/cades-upgrade.test.ts` + `TR_XADES_LIVE_TSA=1`).
+
+- **MSS `mssProfileQuery`** — ETSI TS 102 204 §5.4. `src/mss.ts` içine
+  `mssProfileQuery({serviceUrl, apId, apPwd, msisdn})` eklendi. `MSS_ProfileQuery`
+  / `MSS_ProfileReq` envelope üretir, `SignatureProfile/mssURI` düğümlerinden
+  `profiles: string[]` çıkarır. Dönüş:
+  `{ msspTransId, statusCode?, statusMessage?, profiles }`.
+
+- **MSS `mssSignerCert`** — `MSS_Registration` ile kullanıcı sertifikasını
+  çeker. Cevapta `X509Certificate` base64 → `Uint8Array` DER, `CertificateURI`
+  varsa string olarak döner. Hem inline hem URI-only provider varyantı parse
+  testli.
+
+- **TSP `verifyTimestamp`** — `src/tsp.ts` içine opt-in chain doğrulama API'si.
+  `parseToken()` `TimeStampToken` CMS `SignedData`'ı + TSTInfo'yu ayrıştırır;
+  signer cert token içinden bulunur, CMS'teki ek cert'ler intermediate olarak
+  `validateChain()`'e verilir. Default `checkDate = tst.genTime`. Dönüş:
+  `Timestamp + { signerCertificate?, chain, valid, reason? }`. Live FreeTSA
+  root'uyla pozitif test altında.
+
+- **MA3 CAdES/PAdES interop unlock** — `reference/docker-ocsp/`
+  (`docker-compose.yml` + README). OpenSSL OCSP responder (`18080`) + Python
+  HTTP CRL server (`18081`). `reference/gen-test-ca.sh` AIA/CDP'yi bu endpoint
+  URL'lerine gömüyor; responder sertifikası + root/int CA + `openssl` index/
+  config + CRL dosyaları otomatik üretiliyor. `Ma3Ref.java` artık `test-chain.p12`
+  üzerinden CAdES-BES + PAdES-B-B fixture üretiyor ve `run.sh` OCSP cevabını
+  önceden indirip driver'a enjekte ediyor. Testler: `cades-cross-verify.test.ts`
+  + yeni `pades-cross-verify.test.ts` MA3 çıktısını tr-esign verifier ile
+  doğruluyor.
+
+- **Kamu SM snapshot auto-refresh CI** — `.github/workflows/kamusm-roots.yml`.
+  Aylık cron (`0 5 1 * *`) + `workflow_dispatch`. Python 3.12 + Node 20 + pnpm 9
+  kurup `fetch-kamusm-roots.sh` çalıştırır, tsgo/oxlint/pnpm test geçerse ve
+  `src/kamusm-roots-snapshot.ts` diff'i varsa `peter-evans/create-pull-request`
+  ile `kamusm-roots-refresh` dalında otomatik PR açar.
+
+### Değişti
+
+- **PKCS#11 opsiyonel peer dep**. `graphene-pk11` + `pkcs11js` artık
+  `peerDependencies` + `peerDependenciesMeta.optional` altında. Geliştirme
+  ortamı için `devDependencies`'e taşındı. `pnpm add tr-esign` artık native
+  build tetiklemez; PKCS#11 isteyen kullanıcı
+  `pnpm add tr-esign graphene-pk11 pkcs11js` kurar. `src/pkcs11.ts` artık
+  `createRequire(import.meta.url)` + `loadGraphene()` lazy loader ile çalışıyor;
+  eksikse net yönlendirici hata mesajı dönüyor. `src/sign.ts` `resolveSigner()`
+  PKCS#11 dalı da dynamic import hatasını aynı mesajla sarıyor.
+
+- **Default CAdES-LTA** artık ATSv2 değil ATSv3. V2 override
+  `{ variant: "v2" }` olarak açık; `cadesVerify` her iki seviyeyi de `LTA`
+  olarak raporluyor.
+
+### Test altyapısı
+
+- `test/pades-xref.test.ts` — `parseTrailer` classic + xref-stream, `writeXrefSection`
+  emit + xref-stream PDF üzerinde sign/verify/LT/LTA regression.
+- `test/cades-cross-verify.test.ts` — fixture varsa MA3 CAdES-BES verify.
+- `test/pades-cross-verify.test.ts` — MA3 PAdES-B-B verify (yeni).
+- `test/mss.test.ts` — yeni `mssProfileQuery`, `mssSignerCert` (inline + URI-only)
+  mock testleri.
+- `test/tsp.test.ts` — `verifyTimestamp` malformed-token invalid sonucu + live
+  FreeTSA embedded-root chain doğrulaması.
+- `test/pkcs11.test.ts` — `Module._load` monkeypatch ile optional peer'ler
+  bloklanırken PFX ile `sign()` hala çalışıyor regression'ı.
+- **91/91 offline test** yeşil; live TSA + PKCS#11 SoftHSM ile 96/96.
+
+### Dep
+
+- Yeni deps yok. `graphene-pk11` + `pkcs11js` runtime `dependencies` →
+  `peerDependenciesMeta.optional` (+ `devDependencies`).
+
+### Bilinen sınırlamalar
+
+- Tarayıcıda kullanım halen kapsam dışı (Node-only).
+- MSS canlı operator interop testleri hâlâ kimlik bilgisi gerektiriyor; mock
+  test kapsamı geniş.
+- MA3 interop gerçek mali mühür zinciri ile en iyi çalışır; docker-ocsp
+  altyapısı self-signed test CA'yı kapsar.
+
 ## [0.6.0] — MA3 feature parity (PKCS#11 + MSS + visible + counter + manifest + CLI)
 
 Bu sürüm MA3 2.3.11.8'de olup tr-esign'da eksik olan özelliklerin büyük
