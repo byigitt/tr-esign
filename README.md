@@ -442,6 +442,50 @@ npx tr-esign cades upgrade --in bes.p7s --to T --tsa http://tzd.kamusm.gov.tr --
 
 `--password` yerine `TR_ESIGN_PFX_PASS` environment variable kullanılabilir.
 
+### v0.7 ilaveleri
+
+- **Modern PDF xref-stream**: `pdf-lib` default save (Acrobat 2019+/Ghostscript ile aynı)
+  artık doğrudan imzalanır. Yeni `src/pades-xref.ts` helper'ı classic + xref-stream
+  trailer ayrımı yapıyor; ObjStm payload otomatik inflate edilip classic xref append
+  ediliyor. `padesSign` → `padesUpgrade LT` zinciri pdf-lib default PDF üzerinde
+  regression test altında (`test/pades-xref.test.ts`).
+
+- **CAdES-LTA ATSv3 default**: `cadesUpgrade({to:"LTA"})` artık ETSI EN 319 122-1 §5.5.3
+  `archive-time-stamp-v3` üretiyor ve `ATSHashIndex` unsigned attribute'u ekliyor.
+  Geri dönülüsü gerekiyorsa `{ to: "LTA", variant: "v2" }` ile ATSv2 akışı korunuyor.
+  FreeTSA ile canlı round-trip test altında (`TR_XADES_LIVE_TSA=1`).
+
+- **MSS ProfileQuery + Registration**:
+  - `mssProfileQuery({...})` → MSISDN için kullanılabilir `SignatureProfile` listesi
+    (`profiles: string[]`).
+  - `mssSignerCert({...})` → `MSS_Registration` ile kullanıcı sertifikasını çeker;
+    `certificate?: Uint8Array` (DER) veya `certificateUri?` dönebilir.
+
+- **TSP chain validation**:
+  ```ts
+  import { getTimestamp, verifyTimestamp } from "tr-esign/tsp";
+  const ts = await getTimestamp({ digest, digestAlgorithm: "SHA-256" });
+  const r  = await verifyTimestamp(ts.token, { roots: kamuSmRoots });
+  // r.valid, r.chain.valid, r.signerCertificate, r.messageImprint, r.genTime
+  ```
+  Token'ın içindeki TSA signer cert'ini ayrıştırıp `validateChain()` ile `genTime`
+  anına göre doğrular. Opt-in: varsa trust anchor'ı sen verirsin.
+
+- **PKCS#11 opsiyonel peer dep**: `graphene-pk11` ve `pkcs11js` artık `peerDependenciesMeta.optional`
+  altında. `pnpm add tr-esign` native build tetiklemiyor; PKCS#11 kullanmak istersen
+  `pnpm add tr-esign graphene-pk11 pkcs11js`. Kurulu değilse modül çağrıldığında
+  açıklayıcı hata dönüyor.
+
+- **Kamu SM root snapshot CI**: `.github/workflows/kamusm-roots.yml` aylık cron ile
+  `fetch-kamusm-roots.sh` çalıştırıp `src/kamusm-roots-snapshot.ts` değiştiğinde
+  otomatik PR açıyor.
+
+- **MA3 CAdES/PAdES interop unlock**: `reference/docker-ocsp/` içine openssl OCSP
+  responder (`:18080`) + CRL HTTP server (`:18081`) `docker-compose.yml` geldi.
+  `reference/gen-test-ca.sh` AIA/CDP'leri bu endpoint'lere gömüyor. MA3 reference
+  driver artık CAdES-BES + PAdES-B-B fixture üretiyor; `cades-cross-verify.test.ts`
+  ve yeni `pades-cross-verify.test.ts` tr-esign verifier üzerinden PASS ediyor.
+
 ### Yardımcı modüller
 
 | modül | içerik |
@@ -457,11 +501,11 @@ npx tr-esign cades upgrade --in bes.p7s --to T --tsa http://tzd.kamusm.gov.tr --
 
 ## Kapsam dışı
 
-- **CAdES / PAdES / ASiC** — yalnız XAdES (v0.3+ adayı).
-- **PKCS#11 / akıllı kart** — yumuşak anahtar (PFX/pkcs8). Ayrı paket planlı (`tr-esign-pkcs11`).
-- **Mobil İmza** (Turkcell / Vodafone / TT-MSS) — operatör entegrasyonu v1.x.
 - **Browser** — Node-only. Tarayıcıda PKCS#11 + fs olmuyor.
-- **CLI** — library-only.
+- **TR mali mühür / NES canlı interop** — `reference/docker-ocsp` ile lokal OCSP/CRL
+  altyapısı ve `test-chain.p12` ile test edilir; gerçek Kamu SM zinciri kullanıcı tarafında.
+- **Gerilim servisleri** (MSS canlı endpointler, operatör mavi/pembe MSISDN) —
+  kredilendirme operatöründen alınır; kod mock'lanmış durumda.
 
 ## Güvenlik
 
