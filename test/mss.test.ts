@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mssPoll, mssSign, mssStatus } from "../src/mss.ts";
+import { mssPoll, mssProfileQuery, mssSign, mssStatus } from "../src/mss.ts";
 
 const MSS_NS = "http://uri.etsi.org/TS102204/v1.1.2#";
 
@@ -33,6 +33,15 @@ function statusResp(code: string, msg: string, sigB64?: string): string {
       <mss:Status><mss:StatusCode Value="${code}"/><mss:StatusMessage>${msg}</mss:StatusMessage></mss:Status>
       ${sigTag}
     </mss:MSS_StatusResp>`);
+}
+
+function profileResp(code: string, msg: string, profiles: string[]): string {
+	return wrapResp(`
+    <mss:MSS_ProfileResp MajorVersion="1" MinorVersion="1">
+      <mss:MSSP_TransID>TR-PROFILE-1</mss:MSSP_TransID>
+      ${profiles.map((p) => `<mss:SignatureProfile><mss:mssURI>${p}</mss:mssURI></mss:SignatureProfile>`).join("")}
+      <mss:Status><mss:StatusCode Value="${code}"/><mss:StatusMessage>${msg}</mss:StatusMessage></mss:Status>
+    </mss:MSS_ProfileResp>`);
 }
 
 test("mssSign — synch mod envelope doğru + response parse", async () => {
@@ -75,6 +84,41 @@ test("mssSign — synch mod envelope doğru + response parse", async () => {
 	assert.match(s.body, /<mss:DataToBeSigned[^>]*>bWVyaGFiYQ==<\/mss:DataToBeSigned>/);
 	assert.match(s.body, /DataToBeDisplayed/);
 	assert.match(s.body, /Onay verir misiniz\?/);
+});
+
+test("mssProfileQuery — profil listesi parse + envelope doğru", async () => {
+	let seen: { url: string; body: string; action: string | null } | null = null;
+	const fakeFetch: typeof fetch = async (input, init): Promise<Response> => {
+		const url = typeof input === "string" ? input : (input as URL).toString();
+		const body = init?.body as string;
+		const headers = (init?.headers ?? {}) as Record<string, string>;
+		seen = { url, body, action: headers.SOAPAction ?? null };
+		return new Response(profileResp("100", "OK", [
+			"http://uri.etsi.org/TS102204/v1.1.2#signature-profile",
+			"http://example.test/profile/qualified",
+		]), { status: 200, headers: { "Content-Type": "text/xml" } });
+	};
+
+	const r = await mssProfileQuery({
+		serviceUrl: "https://mssp.test/MSS_ProfileQuery",
+		apId: "tr-esign", apPwd: "secret", msisdn: "905551234567", fetch: fakeFetch,
+	});
+
+	assert.equal(r.msspTransId, "TR-PROFILE-1");
+	assert.equal(r.statusCode, "100");
+	assert.equal(r.statusMessage, "OK");
+	assert.deepEqual(r.profiles, [
+		"http://uri.etsi.org/TS102204/v1.1.2#signature-profile",
+		"http://example.test/profile/qualified",
+	]);
+	assert.ok(seen, "fetch çağrılmadı");
+	const s = seen as { url: string; body: string; action: string | null };
+	assert.equal(s.url, "https://mssp.test/MSS_ProfileQuery");
+	assert.equal(s.action, '"MSS_ProfileQuery"');
+	assert.match(s.body, /MSS_ProfileReq/);
+	assert.match(s.body, /AP_ID="tr-esign"/);
+	assert.match(s.body, /AP_PWD="secret"/);
+	assert.match(s.body, /<mss:MSISDN>905551234567<\/mss:MSISDN>/);
 });
 
 test("mssSign — SOAP Fault reddi", async () => {

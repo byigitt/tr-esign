@@ -74,6 +74,22 @@ export type MssStatusResult = {
 	signature?: Uint8Array;
 };
 
+export type MssProfileQueryOptions = {
+	serviceUrl: string;
+	apId: string;
+	apPwd: string;
+	msisdn: string;
+	apTransId?: string;
+	fetch?: typeof fetch;
+};
+
+export type MssProfileQueryResult = {
+	msspTransId: string;
+	statusCode?: string;
+	statusMessage?: string;
+	profiles: string[];
+};
+
 /**
  * ETSI §5.2 MSS_StatusReq — async mod'daki bir imzanın durumunu sorgular.
  * Polling manuel yapılır; mssPoll() helper'ı bekleyerek imza gelene kadar tekrarlar.
@@ -103,6 +119,20 @@ export async function mssPoll(
 		if (Date.now() >= deadline) throw new Error(`mssPoll: timeout (${timeout}ms) status=${r.statusCode}`);
 		await new Promise((res) => setTimeout(res, interval));
 	}
+}
+
+export async function mssProfileQuery(opts: MssProfileQueryOptions): Promise<MssProfileQueryResult> {
+	const apTransId = opts.apTransId ?? uuid();
+	const instant = new Date().toISOString();
+	const envelope = buildProfileQueryReq({
+		apId: opts.apId,
+		apPwd: opts.apPwd,
+		apTransId,
+		instant,
+		msisdn: opts.msisdn,
+	});
+	const respXml = await postSoap(opts.serviceUrl, envelope, "MSS_ProfileQuery", opts.fetch);
+	return parseProfileQueryResp(respXml);
 }
 
 export async function mssSign(opts: MssSignOptions): Promise<MssSignResult> {
@@ -143,11 +173,25 @@ function buildStatusReq(a: {
 </soap:Envelope>`;
 }
 
-function parseStatusResp(xml: string): MssStatusResult {
-	const doc = new DOMParser().parseFromString(xml, "text/xml");
-	const fault = doc.getElementsByTagNameNS(NS.soap, "Fault").item(0);
-	if (fault) throw new Error(`MSS SOAP Fault: ${textContent(fault)}`);
+function buildProfileQueryReq(a: {
+	apId: string; apPwd: string; apTransId: string; instant: string; msisdn: string;
+}): string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="${NS.soap}" xmlns:mss="${NS.mss}">
+  <soap:Body>
+    <mss:MSS_ProfileQuery>
+      <mss:MSS_ProfileReq MajorVersion="1" MinorVersion="1">
+        <mss:AP_Info AP_ID="${xmlEscape(a.apId)}" AP_TransID="${xmlEscape(a.apTransId)}" AP_PWD="${xmlEscape(a.apPwd)}" Instant="${a.instant}"/>
+        <mss:MSSP_Info><mss:MSSP_ID><mss:URI>${NS.mss}</mss:URI></mss:MSSP_ID></mss:MSSP_Info>
+        <mss:MobileUser><mss:MSISDN>${xmlEscape(a.msisdn)}</mss:MSISDN></mss:MobileUser>
+      </mss:MSS_ProfileReq>
+    </mss:MSS_ProfileQuery>
+  </soap:Body>
+</soap:Envelope>`;
+}
 
+function parseStatusResp(xml: string): MssStatusResult {
+	const doc = parseSoap(xml);
 	const statusCode = firstAttr(doc, NS.mss, "StatusCode", "Value") ?? "";
 	const statusMessage = firstText(doc, NS.mss, "StatusMessage") ?? "";
 	const sigB64 = firstText(doc, NS.mss, "Base64Signature") ?? firstText(doc, NS.mss, "MSS_Signature");
@@ -155,6 +199,25 @@ function parseStatusResp(xml: string): MssStatusResult {
 		statusCode,
 		statusMessage,
 		...(sigB64 ? { signature: new Uint8Array(Buffer.from(sigB64.trim(), "base64")) } : {}),
+	};
+}
+
+function parseProfileQueryResp(xml: string): MssProfileQueryResult {
+	const doc = parseSoap(xml);
+	const profileNodes = doc.getElementsByTagNameNS(NS.mss, "SignatureProfile");
+	const profiles: string[] = [];
+	for (let i = 0; i < profileNodes.length; i++) {
+		const n = profileNodes.item(i);
+		if (!n) continue;
+		const text = firstText(n, NS.mss, "mssURI") ?? n.textContent ?? "";
+		const uri = text.trim();
+		if (uri) profiles.push(uri);
+	}
+	return {
+		msspTransId: firstText(doc, NS.mss, "MSSP_TransID") ?? "",
+		...(firstAttr(doc, NS.mss, "StatusCode", "Value") && { statusCode: firstAttr(doc, NS.mss, "StatusCode", "Value")! }),
+		...(firstText(doc, NS.mss, "StatusMessage") && { statusMessage: firstText(doc, NS.mss, "StatusMessage")! }),
+		profiles,
 	};
 }
 
@@ -210,9 +273,7 @@ async function postSoap(url: string, envelope: string, action: string, fetchImpl
 // ---- Response parser ----
 
 function parseSignatureResp(xml: string): MssSignResult {
-	const doc = new DOMParser().parseFromString(xml, "text/xml");
-	const fault = doc.getElementsByTagNameNS(NS.soap, "Fault").item(0);
-	if (fault) throw new Error(`MSS SOAP Fault: ${textContent(fault)}`);
+	const doc = parseSoap(xml);
 
 	const msspTransId = firstText(doc, NS.mss, "MSSP_TransID") ?? "";
 	// ETSI §5.2.2: Status/StatusCode/@Value (attribute) + Status/StatusMessage (text).
@@ -233,6 +294,14 @@ function parseSignatureResp(xml: string): MssSignResult {
 }
 
 // ---- utils ----
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseSoap(xml: string): any {
+	const doc = new DOMParser().parseFromString(xml, "text/xml");
+	const fault = doc.getElementsByTagNameNS(NS.soap, "Fault").item(0);
+	if (fault) throw new Error(`MSS SOAP Fault: ${textContent(fault)}`);
+	return doc;
+}
 
 function xmlEscape(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
