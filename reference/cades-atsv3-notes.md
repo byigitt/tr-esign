@@ -79,6 +79,24 @@ Buradaki `v2-imprint-input` halen şu parçaları kapsıyor:
   - default: `variant: "v3"`
   - override: `{ variant: "v2" }`
 
+## Live doğrulama (Faz 3.3)
+
+ATSv3 implementasyonu sonrası aşağıdaki gerçek ağ testi geçti:
+
+```bash
+TR_XADES_LIVE_TSA=1 node --import tsx --test test/cades-upgrade.test.ts
+```
+
+Sonuç:
+- `BES → T` ✅
+- `BES → LT` ✅
+- `BES → T → LT → LTA (ATSv3)` ✅
+- unsigned attrs içinde hem `ATSHashIndex` hem `archiveTimeStampV3` var
+- `cadesVerify()` seviye = `LTA`
+
+Bu yüzden v0.7 için ATSv3 yolu artık sadece teorik/spec düzeyinde değil,
+FreeTSA ile çalıştığı kanıtlanmış durumda.
+
 ## Faz 3.2 için minimal implementasyon planı
 
 1. `src/cades-constants.ts`
