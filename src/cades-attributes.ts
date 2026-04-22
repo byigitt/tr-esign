@@ -177,6 +177,36 @@ export function buildRevocationValuesAttr(input: {
 	return attr(CADES_ATTR.revocationValues, new asn1js.Sequence({ value: parts }));
 }
 
+// ETSI EN 319 122-1 / ATSHashIndex (archive-time-stamp-v3 yardımcı attr):
+//   ATSHashIndex ::= SEQUENCE {
+//     hashIndAlgorithm     AlgorithmIdentifier DEFAULT sha256,
+//     certificatesHashIndex  SEQUENCE OF OCTET STRING,
+//     crlsHashIndex          SEQUENCE OF OCTET STRING,
+//     unsignedAttrsHashIndex SEQUENCE OF OCTET STRING }
+// Her eleman kendi DER temsilinin hash'idir.
+export async function buildAtsHashIndexAttr(input: {
+	certs?: Uint8Array[];
+	crls?: Uint8Array[];
+	unsignedAttrs?: Uint8Array[];
+	digestAlgorithm?: HashAlg;
+}): Promise<pkijs.Attribute> {
+	const hashAlg = input.digestAlgorithm ?? "SHA-256";
+	const sections: asn1js.BaseBlock[] = [];
+	if (hashAlg !== "SHA-256") {
+		sections.push(new pkijs.AlgorithmIdentifier({ algorithmId: HASH_OID[hashAlg] }).toSchema());
+	}
+	sections.push(new asn1js.Sequence({
+		value: await hashList(input.certs ?? [], hashAlg),
+	}));
+	sections.push(new asn1js.Sequence({
+		value: await hashList(input.crls ?? [], hashAlg),
+	}));
+	sections.push(new asn1js.Sequence({
+		value: await hashList(input.unsignedAttrs ?? [], hashAlg),
+	}));
+	return attr(CADES_ATTR.atsHashIndex, new asn1js.Sequence({ value: sections }));
+}
+
 // [n] EXPLICIT inner — RFC tag class=2 (context-specific), constructed.
 function taggedExplicit(tag: number, inner: asn1js.BaseBlock): asn1js.BaseBlock {
 	return new asn1js.Constructed({
@@ -186,6 +216,14 @@ function taggedExplicit(tag: number, inner: asn1js.BaseBlock): asn1js.BaseBlock 
 }
 
 // --- helpers ---
+
+async function hashList(items: Uint8Array[], hashAlg: HashAlg): Promise<asn1js.OctetString[]> {
+	const out: asn1js.OctetString[] = [];
+	for (const item of items) {
+		out.push(new asn1js.OctetString({ valueHex: toAB(await digest(hashAlg, item)) }));
+	}
+	return out;
+}
 
 function toAB(u8: Uint8Array): ArrayBuffer {
 	const ab = new ArrayBuffer(u8.byteLength);

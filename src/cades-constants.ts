@@ -43,6 +43,7 @@ export const CADES_ATTR = {
 	archiveTimeStamp: "1.2.840.113549.1.9.16.2.27",         // CAdES-A v1 (deprecated)
 	archiveTimeStampV2: "1.2.840.113549.1.9.16.2.48",       // CAdES-A v2 (tercih edilen)
 	archiveTimeStampV3: "0.4.0.1733.2.4",                    // CAdES-A v3 (EN 319 122)
+	atsHashIndex: "0.4.0.1733.2.5",                          // ATSHashIndex (archive-time-stamp-v3 yardimci attr)
 } as const;
 
 // NIST hash algorithm OIDs (CMS AlgorithmIdentifier'larda kullanılır).

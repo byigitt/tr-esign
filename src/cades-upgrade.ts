@@ -9,6 +9,7 @@
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
 import {
+	buildAtsHashIndexAttr,
 	buildCertValuesAttr,
 	buildRevocationValuesAttr,
 	buildSignatureTimeStampAttr,
@@ -20,7 +21,14 @@ import { getTimestamp } from "./tsp.ts";
 export type CadesUpgradeOptions =
 	| { bytes: Uint8Array; to: "T"; tsa?: { url?: string; policyOid?: string }; digestAlgorithm?: HashAlg }
 	| { bytes: Uint8Array; to: "LT"; chain: Uint8Array[]; crls?: Uint8Array[]; ocsps?: Uint8Array[] }
-	| { bytes: Uint8Array; to: "LTA"; tsa?: { url?: string; policyOid?: string }; digestAlgorithm?: HashAlg; detachedContent?: Uint8Array };
+	| {
+		bytes: Uint8Array;
+		to: "LTA";
+		tsa?: { url?: string; policyOid?: string };
+		digestAlgorithm?: HashAlg;
+		detachedContent?: Uint8Array;
+		variant?: "v2" | "v3";
+	};
 
 export async function cadesUpgrade(opts: CadesUpgradeOptions): Promise<Uint8Array> {
 	const asn = asn1js.fromBER(toAB(opts.bytes));
@@ -90,52 +98,35 @@ const ATS_OIDS = new Set<string>([
 	CADES_ATTR.archiveTimeStampV3,
 ]);
 
-// ETSI TS 101 733 §6.4.1 archive-time-stamp-v2 message imprint input:
+// ETSI TS 101 733 / EN 319 122 archive-time-stamp message imprint input:
 // DER(eContent) || DER(certs)* || DER(crls)* || DER(si.version) || DER(si.sid) ||
 // DER(si.digestAlgorithm) || DER(si.signedAttrs [0] IMPLICIT) ||
 // DER(si.signatureAlgorithm) || DER(si.signature) ||
-// her unsignedAttr DER (prior ATS hariç).
+// her unsignedAttr DER (prior ATS hariç). V3 için buna ek olarak
+// DER(ATSHashIndex value) de append edilir.
 async function addArchiveTimeStamp(
 	sd: pkijs.SignedData,
 	si: pkijs.SignerInfo,
 	opts: Extract<CadesUpgradeOptions, { to: "LTA" }>,
 ): Promise<void> {
 	const hashAlg = opts.digestAlgorithm ?? "SHA-256";
-	const parts: ArrayBuffer[] = [];
+	const variant = opts.variant ?? "v3";
+	let atsHashIndexValueDer: ArrayBuffer | undefined;
 
-	// eContent (attached ise mevcut, detached ise dişarıdan verilen data iç içe yazılır)
-	const ec = sd.encapContentInfo.eContent;
-	if (ec) parts.push(ec.toBER(false));
-	else if (opts.detachedContent) {
-		parts.push(new asn1js.OctetString({ valueHex: toAB(opts.detachedContent) }).toBER(false));
+	if (variant === "v3") {
+		const atsHashIndex = await buildAtsHashIndexAttr({
+			digestAlgorithm: hashAlg,
+			certs: (sd.certificates ?? []).map((c) => new Uint8Array(c.toSchema().toBER(false))),
+			crls: (sd.crls ?? []).map((r) => new Uint8Array(r.toSchema().toBER(false))),
+			unsignedAttrs: (si.unsignedAttrs?.attributes ?? []).map((a) => new Uint8Array(a.toSchema().toBER(false))),
+		});
+		atsHashIndexValueDer = atsHashIndex.values[0]!.toBER(false);
+		addUnsignedAttr(si, atsHashIndex);
 	}
 
-	for (const c of sd.certificates ?? []) parts.push(c.toSchema().toBER(false));
-	for (const r of sd.crls ?? []) parts.push(r.toSchema().toBER(false));
-
-	// SignerInfo alan sırası (RFC 5652 §5.3): version, sid, digestAlgorithm,
-	// [0]signedAttrs?, signatureAlgorithm, signature, [1]unsignedAttrs?.
-	// si.sid parse edilmiş SignedData'da pkijs ile raw asn1js veya pkijs objesi
-	// olabilir; güvenli yol: si.toSchema() üzerinden inner node'ları al.
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const siNodes = (si.toSchema() as any).valueBlock.value as asn1js.BaseBlock[];
-	for (const n of siNodes) {
-		// [1] IMPLICIT unsignedAttrs hariç (tagClass=3 && tagNumber=1)
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const id = (n as any).idBlock;
-		if (id?.tagClass === 3 && id?.tagNumber === 1) continue;
-		parts.push(n.toBER(false));
-	}
-
-	if (si.unsignedAttrs) {
-		for (const a of si.unsignedAttrs.attributes) {
-			if (ATS_OIDS.has(a.type)) continue;
-			parts.push(a.toSchema().toBER(false));
-		}
-	}
-
-	const total = concat(parts);
-	const d = await digest(hashAlg, total);
+	const total = collectArchiveTimeStampInput(sd, si, opts);
+	const input = atsHashIndexValueDer ? concat([toAB(total), atsHashIndexValueDer]) : total;
+	const d = await digest(hashAlg, input);
 	const ts = await getTimestamp({
 		digest: d,
 		digestAlgorithm: hashAlg,
@@ -143,12 +134,39 @@ async function addArchiveTimeStamp(
 		policyOid: opts.tsa?.policyOid,
 	});
 
-	// ArchiveTimeStampV2 attribute value = TimeStampToken (ContentInfo).
 	const atsSchema = asn1js.fromBER(toAB(ts.token)).result;
 	addUnsignedAttr(si, new pkijs.Attribute({
-		type: CADES_ATTR.archiveTimeStampV2,
+		type: variant === "v3" ? CADES_ATTR.archiveTimeStampV3 : CADES_ATTR.archiveTimeStampV2,
 		values: [atsSchema],
 	}));
+}
+
+function collectArchiveTimeStampInput(
+	sd: pkijs.SignedData,
+	si: pkijs.SignerInfo,
+	opts: Extract<CadesUpgradeOptions, { to: "LTA" }>,
+): Uint8Array {
+	const parts: ArrayBuffer[] = [];
+	const ec = sd.encapContentInfo.eContent;
+	if (ec) parts.push(ec.toBER(false));
+	else if (opts.detachedContent) parts.push(new asn1js.OctetString({ valueHex: toAB(opts.detachedContent) }).toBER(false));
+	for (const c of sd.certificates ?? []) parts.push(c.toSchema().toBER(false));
+	for (const r of sd.crls ?? []) parts.push(r.toSchema().toBER(false));
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const siNodes = (si.toSchema() as any).valueBlock.value as asn1js.BaseBlock[];
+	for (const n of siNodes) {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const id = (n as any).idBlock;
+		if (id?.tagClass === 3 && id?.tagNumber === 1) continue;
+		parts.push(n.toBER(false));
+	}
+	if (si.unsignedAttrs) {
+		for (const a of si.unsignedAttrs.attributes) {
+			if (ATS_OIDS.has(a.type)) continue;
+			parts.push(a.toSchema().toBER(false));
+		}
+	}
+	return concat(parts);
 }
 
 function concat(buffers: ArrayBuffer[]): Uint8Array {

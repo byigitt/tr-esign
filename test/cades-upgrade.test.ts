@@ -95,7 +95,8 @@ test("cadesUpgrade — BES → T → LT → LTA round-trip (live TSA)",
 		const types = new Set(unsigned.map((a) => a.type));
 		assert.ok(types.has(CADES_ATTR.signatureTimeStamp), "T attribute bekleniyor");
 		assert.ok(types.has(CADES_ATTR.certValues), "LT attribute bekleniyor");
-		assert.ok(types.has(CADES_ATTR.archiveTimeStampV2), "LTA attribute bekleniyor");
+		assert.ok(types.has(CADES_ATTR.atsHashIndex), "ATSHashIndex attribute bekleniyor");
+		assert.ok(types.has(CADES_ATTR.archiveTimeStampV3), "LTA v3 attribute bekleniyor");
 
 		const r = await cadesVerify(lta);
 		assert.equal(r.valid, true, r.valid ? "" : `invalid: ${r.reason}`);
