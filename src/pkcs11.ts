@@ -14,7 +14,10 @@
 // BaseSmartCard + keyfinder + pkcs11/*). Biz graphene-pk11'in üstünde
 // session yönetimi ve sertifika eşleştirme sağlıyoruz.
 
-import * as graphene from "graphene-pk11";
+import { createRequire } from "node:module";
+import type * as Graphene from "graphene-pk11";
+
+const require = createRequire(import.meta.url);
 
 export type Pkcs11Options = {
 	/** libsofthsm2.so, opensc-pkcs11.so, AKIS PKCS#11 .so/.dll yolu */
@@ -28,8 +31,8 @@ export type Pkcs11Options = {
 };
 
 export type Pkcs11Handle = {
-	module: graphene.Module;
-	session: graphene.Session;
+	module: Graphene.Module;
+	session: Graphene.Session;
 	/** Logout + session close + module finalize. İdempotent. */
 	close: () => void;
 };
@@ -45,12 +48,13 @@ export type Pkcs11Signer = {
 	/** X.509 DER bytes (pkijs.Certificate'e parse edilebilir) */
 	certificate: Uint8Array;
 	/** PKCS#11 private key handle (sign için Session.createSign'a verilir) */
-	privateKey: graphene.PrivateKey;
+	privateKey: Graphene.PrivateKey;
 	/** SHA-256/384/512 × RSA veya ECDSA imzalama mechanism helper */
-	mechanism: graphene.MechanismType;
+	mechanism: Graphene.MechanismType;
 };
 
 export function openPkcs11(opts: Pkcs11Options): Pkcs11Handle {
+	const graphene = loadGraphene();
 	const module = graphene.Module.load(opts.modulePath, opts.vendor ?? "pkcs11");
 	module.initialize();
 	const slots = module.getSlots(true);
@@ -58,7 +62,7 @@ export function openPkcs11(opts: Pkcs11Options): Pkcs11Handle {
 		module.finalize();
 		throw new Error("pkcs11: token taşıyan slot yok");
 	}
-	let slot: graphene.Slot;
+	let slot: Graphene.Slot;
 	if (opts.slot !== undefined) {
 		slot = typeof opts.slot === "number"
 			? slots.items(opts.slot)
@@ -80,22 +84,23 @@ export function openPkcs11(opts: Pkcs11Options): Pkcs11Handle {
 	return { module, session, close };
 }
 
-export function findSigner(session: graphene.Session, filter: SignerFilter = {}): Pkcs11Signer {
+export function findSigner(session: Graphene.Session, filter: SignerFilter = {}): Pkcs11Signer {
+	const graphene = loadGraphene();
 	// Private key: sign amaçlı, filter.label eşleşiyorsa ona göre.
-	const privTemplate: graphene.ITemplate = { class: graphene.ObjectClass.PRIVATE_KEY, sign: true };
+	const privTemplate: Graphene.ITemplate = { class: graphene.ObjectClass.PRIVATE_KEY, sign: true };
 	if (filter.label !== undefined) privTemplate.label = filter.label;
 	const privs = session.find(privTemplate);
 	if (privs.length === 0) throw new Error("pkcs11: imzalayabilen private key yok");
-	const priv = privs.items(0).toType<graphene.PrivateKey>();
+	const priv = privs.items(0).toType<Graphene.PrivateKey>();
 
 	// Eşleşen sertifika: aynı CKA_ID. X509Certificate.value = DER bytes.
 	const certs = session.find({ class: graphene.ObjectClass.CERTIFICATE, id: priv.id });
 	if (certs.length === 0) throw new Error("pkcs11: eşleşen sertifika (CKA_ID) yok");
-	let chosenCert = certs.items(0).toType<graphene.X509Certificate>();
+	let chosenCert = certs.items(0).toType<Graphene.X509Certificate>();
 	if (filter.subject) {
 		// subject regex'e uyan ilk cert
 		for (let i = 0; i < certs.length; i++) {
-			const c = certs.items(i).toType<graphene.X509Certificate>();
+			const c = certs.items(i).toType<Graphene.X509Certificate>();
 			// subject Buffer DER-encoded Name; okunabilir CN extraction cert-level iş;
 			// PFX'tekine paralel şekilde DER bytes üzerinden test yapmak basit değil.
 			// Pragmatik: subject DER'in latin1 temsilinde regex match.
@@ -110,7 +115,7 @@ export function findSigner(session: graphene.Session, filter: SignerFilter = {})
 }
 
 export function pkcs11Sign(
-	session: graphene.Session,
+	session: Graphene.Session,
 	signer: Pkcs11Signer,
 	data: Uint8Array,
 ): Uint8Array {
@@ -118,7 +123,7 @@ export function pkcs11Sign(
 	return new Uint8Array(sign.once(Buffer.from(data)));
 }
 
-function findSlotByHandle(slots: graphene.SlotCollection, handle: Buffer): graphene.Slot {
+function findSlotByHandle(slots: Graphene.SlotCollection, handle: Buffer): Graphene.Slot {
 	for (let i = 0; i < slots.length; i++) {
 		const s = slots.items(i);
 		if (Buffer.compare(s.handle, handle) === 0) return s;
@@ -126,11 +131,23 @@ function findSlotByHandle(slots: graphene.SlotCollection, handle: Buffer): graph
 	throw new Error(`pkcs11: slot handle eşleşmedi: ${handle.toString("hex")}`);
 }
 
-function pickMechanism(key: graphene.PrivateKey): graphene.MechanismType {
+function pickMechanism(key: Graphene.PrivateKey): Graphene.MechanismType {
+	const graphene = loadGraphene();
 	// RSA → CKM_SHA256_RSA_PKCS (hash + sign), EC → CKM_ECDSA_SHA256.
 	// KeyType değeri pkcs11 spec'inde: RSA=0, DSA=1, EC=3.
 	// graphene KeyType enum'u kullan.
 	if (key.type === graphene.KeyType.RSA) return graphene.MechanismEnum.SHA256_RSA_PKCS;
 	if (key.type === graphene.KeyType.ECDSA) return graphene.MechanismEnum.ECDSA_SHA256;
 	throw new Error(`pkcs11: desteklenmeyen anahtar tipi: ${key.type}`);
+}
+
+function loadGraphene(): typeof Graphene {
+	try {
+		return require("graphene-pk11") as typeof Graphene;
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		throw new Error(
+			`pkcs11 kullanmak için önce opsiyonel bağımlılıkları kur: pnpm add pkcs11js graphene-pk11 (${msg})`,
+		);
+	}
 }

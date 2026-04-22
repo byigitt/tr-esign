@@ -304,7 +304,16 @@ export async function resolveSigner(input: {
 		};
 	}
 	// PKCS#11
-	const { findSigner, pkcs11Sign } = await import("./pkcs11.ts");
+	let findSigner: typeof import("./pkcs11.ts").findSigner;
+	let pkcs11Sign: typeof import("./pkcs11.ts").pkcs11Sign;
+	try {
+		({ findSigner, pkcs11Sign } = await import("./pkcs11.ts"));
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		throw new Error(
+			`pkcs11 kullanmak için önce opsiyonel bağımlılıkları kur: pnpm add pkcs11js graphene-pk11 (${msg})`,
+		);
+	}
 	const found = findSigner(input.signer.pkcs11.session, {
 		...(input.signer.label !== undefined && { label: input.signer.label }),
 		...(input.signer.subject !== undefined && { subject: input.signer.subject }),
