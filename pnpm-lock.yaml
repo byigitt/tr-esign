@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  crypto-js@<4.2.0: '>=4.2.0'
+
 importers:
 
   .:
@@ -29,9 +32,6 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
-      graphene-pk11:
-        specifier: ^2.3.6
-        version: 2.3.6
       pkijs:
         specifier: ^3.4.0
         version: 3.4.0
@@ -54,12 +54,18 @@ importers:
       '@typescript/native-preview':
         specifier: latest
         version: 7.0.0-dev.20260420.1
+      graphene-pk11:
+        specifier: ^2.3.6
+        version: 2.3.6
       oxlint:
         specifier: ^0.13.0
         version: 0.13.2
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1
+      pkcs11js:
+        specifier: ^2.1.6
+        version: 2.1.6
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
@@ -449,8 +455,8 @@ packages:
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
-  crypto-js@3.3.0:
-    resolution: {integrity: sha512-DIT51nX0dCfKltpRiXV+/TVZq+Qq2NgF4644+K7Ttnla7zEzqc+kjJyiB96BHNyUTBxyjzRcZYpUdZa+QAqi6Q==}
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
 
   deep-equal@2.2.3:
     resolution: {integrity: sha512-ZIwpnevOurS8bpT4192sqAowWM76JDKSHYzMLty3BZGSswgq6pBaH3DhCSW5xVAZICZyKdOBPjwww5wfgT/6PA==}
@@ -1275,7 +1281,7 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
-  crypto-js@3.3.0: {}
+  crypto-js@4.2.0: {}
 
   deep-equal@2.2.3:
     dependencies:
@@ -1638,7 +1644,7 @@ snapshots:
 
   pdfkit@0.10.0:
     dependencies:
-      crypto-js: 3.3.0
+      crypto-js: 4.2.0
       fontkit: 1.9.0
       linebreak: 0.3.0
       png-js: 2.0.0

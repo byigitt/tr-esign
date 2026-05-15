@@ -171,7 +171,10 @@
     "onlyBuiltDependencies": [
       "pkcs11js",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "crypto-js@<4.2.0": ">=4.2.0"
+    }
   },
   "bin": {
     "tr-esign": "./bin/tr-esign"
